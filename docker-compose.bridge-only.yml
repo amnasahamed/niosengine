@@ -1,0 +1,33 @@
+# Use this when n8n + Traefik are ALREADY running (your current setup).
+# Do NOT use the root docker-compose.yml — it would start a second n8n.
+
+services:
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    container_name: niostech-whatsapp
+    restart: unless-stopped
+    environment:
+      # Reach existing n8n container on the shared Docker network
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/whatsapp-crm}
+      - N8N_HEALTH_URL=${N8N_HEALTH_URL:-http://n8n:5678/healthz}
+      - PORT=3001
+      - QR_ACCESS_TOKEN=${QR_ACCESS_TOKEN:?Set QR_ACCESS_TOKEN in .env}
+      - ALLOWLIST=${ALLOWLIST:-}
+      - WEBHOOK_RETRIES=${WEBHOOK_RETRIES:-3}
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+    volumes:
+      - whatsapp_auth:/app/.wwebjs_auth
+    ports:
+      - "3001:3001"
+    shm_size: "512mb"
+    networks:
+      - n8n_default
+
+volumes:
+  whatsapp_auth:
+
+networks:
+  n8n_default:
+    external: true

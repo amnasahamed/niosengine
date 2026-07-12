@@ -37,7 +37,7 @@ bash scripts/verify.sh    # must pass
 git init
 git add .
 git commit -m "WhatsApp CRM automation with n8n and Docker"
-git remote add origin https://github.com/YOUR_USER/niostech.git
+git remote add origin https://github.com/amnasahamed/niosengine.git
 git push -u origin main
 ```
 
@@ -46,7 +46,8 @@ git push -u origin main
 ### On Hostinger VPS (after pull)
 
 ```bash
-git clone https://github.com/YOUR_USER/niostech.git /opt/niostech
+git clone https://github.com/amnasahamed/niosengine.git /opt/niosengine
+cd /opt/niosengine
 cd /opt/niostech
 cp .env.example .env
 nano .env          # set passwords + domain

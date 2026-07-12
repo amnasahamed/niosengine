@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.bridge.example
 whatsapp-bridge/node_modules/
 whatsapp-bridge/.wwebjs_auth/
 whatsapp-bridge/.env
