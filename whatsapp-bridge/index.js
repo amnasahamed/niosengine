@@ -146,6 +146,29 @@ async function forwardToN8n(payload) {
   throw lastError;
 }
 
+function cleanStaleLocksOnly() {
+  // Only remove Chromium lock files — NEVER delete .wwebjs_auth (that logs WhatsApp out)
+  const tmpProfile = '/tmp/chromium-profile';
+  if (fs.existsSync(tmpProfile)) {
+    try {
+      fs.rmSync(tmpProfile, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  }
+  cleanChromiumLocks();
+}
+
+async function destroyClient() {
+  try {
+    await client.destroy();
+  } catch {
+    // ignore
+  }
+  isInitializing = false;
+  cleanStaleLocksOnly();
+}
+
 function cleanChromiumLocks() {
   const authDir = path.resolve('./.wwebjs_auth');
   const lockNames = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
@@ -171,15 +194,6 @@ function cleanChromiumLocks() {
   walk(authDir);
 }
 
-async function destroyClient() {
-  try {
-    await client.destroy();
-  } catch {
-    // ignore
-  }
-  isInitializing = false;
-}
-
 const puppeteerArgs = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -189,9 +203,13 @@ const puppeteerArgs = [
 ];
 
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+  authStrategy: new LocalAuth({
+    dataPath: './.wwebjs_auth',
+    clientId: 'niostech-whatsapp',
+  }),
   puppeteer: {
     headless: true,
+    userDataDir: '/tmp/chromium-profile',
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: puppeteerArgs,
   },
@@ -200,7 +218,7 @@ const client = new Client({
 async function startWhatsAppClient() {
   if (isInitializing) return;
   isInitializing = true;
-  cleanChromiumLocks();
+  cleanStaleLocksOnly();
   try {
     await client.initialize();
   } catch (error) {
@@ -290,6 +308,48 @@ client.on('message', async (msg) => {
 });
 
 const app = express();
+app.use(express.json());
+
+function checkApiToken(req, res) {
+  if (!QR_ACCESS_TOKEN) return true;
+  const token = req.headers['x-api-token'] || req.query.token;
+  if (token !== QR_ACCESS_TOKEN) {
+    res.status(401).json({ error: 'Unauthorized. Provide x-api-token header.' });
+    return false;
+  }
+  return true;
+}
+
+async function sendWhatsAppMessage(phone, message) {
+  if (whatsappState !== 'ready' && whatsappState !== 'authenticated') {
+    throw new Error('WhatsApp client is not ready');
+  }
+
+  const digits = normalizePhone(phone);
+  if (!digits) throw new Error('Invalid phone number');
+
+  const chatId = `${digits}@c.us`;
+  await client.sendMessage(chatId, message);
+  return digits;
+}
+
+app.post('/send', async (req, res) => {
+  if (!checkApiToken(req, res)) return;
+
+  try {
+    const { phone, message } = req.body || {};
+    if (!phone || !String(message || '').trim()) {
+      return res.status(400).json({ error: 'phone and message are required' });
+    }
+
+    const sentTo = await sendWhatsAppMessage(phone, String(message).trim());
+    console.log(`Sent WhatsApp message to ${sentTo}`);
+    res.json({ ok: true, phone: sentTo });
+  } catch (error) {
+    console.error('Send failed:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.get('/health', (_req, res) => {
   res.json({

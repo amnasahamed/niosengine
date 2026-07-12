@@ -207,6 +207,7 @@
     },
     {
       "parameters": {
+        "resource": "sheet",
         "operation": "read",
         "documentId": {
           "__rl": true,
@@ -223,12 +224,12 @@
       "id": "a1b2c3d4-0001-4000-8000-000000000008",
       "name": "Read CRM Sheet",
       "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "typeVersion": 4.7,
       "position": [1760, 240]
     },
     {
       "parameters": {
-        "jsCode": "const lead = $('Map to CRM Fields').first().json;\nconst rows = $input.all().map((item) => item.json);\n\nfunction normalizePhone(value) {\n  const digits = String(value || '').replace(/\\D/g, '');\n  if (digits.length === 10) return '91' + digits;\n  return digits;\n}\n\nfunction phoneKey(value) {\n  return normalizePhone(value).slice(-10);\n}\n\nconst targetKey = phoneKey(lead.phone);\nlet existing = null;\n\nfor (const row of rows) {\n  const rowKey = phoneKey(row.Phone || row.phone);\n  const altKey = phoneKey(row['Alternate Phone'] || row.alternate_phone);\n  if ((rowKey && rowKey === targetKey) || (altKey && altKey === targetKey)) {\n    existing = row;\n    break;\n  }\n}\n\nconst followups = existing\n  ? (Number(existing['Follow-ups Count'] || existing.follow_ups_count || 0) + 1)\n  : 1;\n\nconst pick = (next, prev) => {\n  if (next !== null && next !== undefined && String(next).trim() !== '') return next;\n  return prev || '';\n};\n\nconst phone = normalizePhone(existing?.Phone || lead.phone);\n\nconst merged = {\n  'Lead ID': existing?.['Lead ID'] || lead.lead_id,\n  'Date': existing?.Date || lead.date,\n  'Student Name': pick(lead.student_name, existing?.['Student Name']),\n  'Phone': phone,\n  'Alternate Phone': pick(lead.alternate_phone, existing?.['Alternate Phone']),\n  'Class/Level': pick(lead.class_level, existing?.['Class/Level']),\n  'Stream': pick(lead.stream, existing?.['Stream']),\n  'Subjects Failed': pick(lead.subjects_failed, existing?.['Subjects Failed']),\n  'Subjects Count': pick(lead.subjects_count, existing?.['Subjects Count']),\n  'Source': existing?.Source || lead.source,\n  'Price Disclosed': pick(lead.price_disclosed, existing?.['Price Disclosed']),\n  'Lead Status': lead.lead_status || existing?.['Lead Status'] || 'Contacted',\n  'Lost Reason': pick(lead.lost_reason, existing?.['Lost Reason']),\n  'Assigned To': existing?.['Assigned To'] || '',\n  'Last Contacted': lead.last_contacted,\n  'Next Follow-up': pick(lead.next_follow_up, existing?.['Next Follow-up']),\n  'Follow-ups Count': followups,\n  'Remarks': lead.remarks\n};\n\nreturn [{ json: merged }];"
+        "jsCode": "const lead = $('Map to CRM Fields').first().json;\nconst rows = $input.all().map((item) => item.json);\nconst history = $('Get Chat History').all().map((item) => item.json);\nconst normalized = $('Normalize Message').first().json;\n\nfunction normalizePhone(value) {\n  const digits = String(value || '').replace(/\\D/g, '');\n  if (digits.length === 10) return '91' + digits;\n  return digits;\n}\n\nfunction phoneKey(value) {\n  return normalizePhone(value).slice(-10);\n}\n\nconst targetKey = phoneKey(lead.phone);\nlet existing = null;\n\nfor (const row of rows) {\n  const rowKey = phoneKey(row.Phone || row.phone);\n  const altKey = phoneKey(row['Alternate Phone'] || row.alternate_phone);\n  if ((rowKey && rowKey === targetKey) || (altKey && altKey === targetKey)) {\n    existing = row;\n    break;\n  }\n}\n\nconst followups = existing\n  ? (Number(existing['Follow-ups Count'] || existing.follow_ups_count || 0) + 1)\n  : 1;\n\nconst pick = (next, prev) => {\n  if (next !== null && next !== undefined && String(next).trim() !== '') return next;\n  return prev || '';\n};\n\nconst phone = normalizePhone(existing?.Phone || lead.phone);\n\nconst merged = {\n  'Lead ID': existing?.['Lead ID'] || lead.lead_id,\n  'Date': existing?.Date || lead.date,\n  'Student Name': pick(lead.student_name, existing?.['Student Name']),\n  'Phone': phone,\n  'Alternate Phone': pick(lead.alternate_phone, existing?.['Alternate Phone']),\n  'Class/Level': pick(lead.class_level, existing?.['Class/Level']),\n  'Stream': pick(lead.stream, existing?.['Stream']),\n  'Subjects Failed': pick(lead.subjects_failed, existing?.['Subjects Failed']),\n  'Subjects Count': pick(lead.subjects_count, existing?.['Subjects Count']),\n  'Source': existing?.Source || lead.source,\n  'Price Disclosed': pick(lead.price_disclosed, existing?.['Price Disclosed']),\n  'Lead Status': lead.lead_status || existing?.['Lead Status'] || 'Contacted',\n  'Lost Reason': pick(lead.lost_reason, existing?.['Lost Reason']),\n  'Assigned To': existing?.['Assigned To'] || '',\n  'Last Contacted': lead.last_contacted,\n  'Next Follow-up': pick(lead.next_follow_up, existing?.['Next Follow-up']),\n  'Follow-ups Count': followups,\n  'Remarks': lead.remarks\n};\n\nconst outboundNurture = history.some((row) =>\n  row.direction === 'outbound' && /skillvard|admission process|qualification/i.test(String(row.message || ''))\n);\n\nconst missingInfo =\n  !String(merged['Student Name'] || '').trim() ||\n  !String(merged['Class/Level'] || '').trim() ||\n  !String(merged['Stream'] || '').trim();\n\nconst isFirstContact = Number(merged['Follow-ups Count']) <= 1;\n\nreturn [{\n  json: {\n    ...merged,\n    should_nurture: isFirstContact && missingInfo && !outboundNurture,\n    latest_message: normalized.message,\n    whatsapp_name: normalized.whatsapp_name || ''\n  }\n}];"
       },
       "id": "a1b2c3d4-0001-4000-8000-000000000009",
       "name": "Merge With Existing Lead",
@@ -238,6 +239,7 @@
     },
     {
       "parameters": {
+        "resource": "sheet",
         "operation": "appendOrUpdate",
         "documentId": {
           "__rl": true,
@@ -271,15 +273,173 @@
             "Follow-ups Count": "={{ $json['Follow-ups Count'] }}",
             "Remarks": "={{ $json.Remarks }}"
           },
-          "matchingColumns": ["Phone"]
+          "matchingColumns": ["Phone"],
+          "schema": [
+            { "id": "Lead ID", "displayName": "Lead ID", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Date", "displayName": "Date", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Student Name", "displayName": "Student Name", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Phone", "displayName": "Phone", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Alternate Phone", "displayName": "Alternate Phone", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Class/Level", "displayName": "Class/Level", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Stream", "displayName": "Stream", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Subjects Failed", "displayName": "Subjects Failed", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Subjects Count", "displayName": "Subjects Count", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Source", "displayName": "Source", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Price Disclosed", "displayName": "Price Disclosed", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Lead Status", "displayName": "Lead Status", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Lost Reason", "displayName": "Lost Reason", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Assigned To", "displayName": "Assigned To", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Last Contacted", "displayName": "Last Contacted", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Next Follow-up", "displayName": "Next Follow-up", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Follow-ups Count", "displayName": "Follow-ups Count", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true },
+            { "id": "Remarks", "displayName": "Remarks", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true }
+          ]
         },
         "options": {}
       },
       "id": "a1b2c3d4-0001-4000-8000-000000000011",
       "name": "Upsert CRM Lead",
       "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "typeVersion": 4.7,
       "position": [2200, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "should-nurture",
+              "leftValue": "={{ $('Merge With Existing Lead').item.json.should_nurture }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000012",
+      "name": "Send Nurture?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2420, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Merge With Existing Lead').first().json;\n\nconst systemPrompt = `You write WhatsApp replies for Skillvard NIOS admission counselling in Kerala, India.\n\nTone: warm, helpful, human — never robotic or pushy.\n\nLANGUAGE (very important):\n- If the student wrote in Manglish (Malayalam + English mix), reply in natural Manglish\n- If they used Malayalam script, you may reply in simple Malayalam\n- Otherwise use simple, friendly English\n\nThank them for contacting Skillvard NIOS and offer help with the admission process.\nGently ask for any missing details from this list:\n- Name\n- Qualification\n- Place\n- Contact number\n- Course/Stream interested in (e.g. NIOS 10th, 12th Science, Commerce)\n\nKeep under 110 words. No markdown. Return ONLY the WhatsApp message text.`;\n\nconst userPrompt = `Student WhatsApp name: ${ctx.whatsapp_name || 'unknown'}\nTheir latest message: ${ctx.latest_message}\n\nKnown name: ${ctx['Student Name'] || 'not yet'}\nKnown qualification: ${ctx['Class/Level'] || 'not yet'}\nKnown stream/course: ${ctx.Stream || 'not yet'}\n\nWrite the nurturing reply now.`;\n\nreturn [{\n  json: {\n    phone: ctx.Phone,\n    openai_body: {\n      model: 'gpt-4o',\n      temperature: 0.75,\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ]\n    }\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000013",
+      "name": "Build Nurture Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.openai_body }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000014",
+      "name": "GPT Nurture Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2860, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Build Nurture Prompt').first().json;\nconst aiRaw = $input.first().json;\n\nlet reply = aiRaw.choices?.[0]?.message?.content?.trim() || '';\nreply = reply.replace(/^[\"']|[\"']$/g, '');\n\nconst wait_seconds = Math.floor(Math.random() * 21) + 10;\n\nreturn [{\n  json: {\n    phone: ctx.phone,\n    reply_text: reply,\n    wait_seconds\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000015",
+      "name": "Prepare Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 160]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_seconds }}",
+        "unit": "seconds"
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000016",
+      "name": "Human Delay 10-30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [3300, 160],
+      "webhookId": "whatsapp-nurture-wait"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://niostech-whatsapp:3001/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-token",
+              "value": "REPLACE_WITH_YOUR_QR_ACCESS_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { phone: $('Prepare Reply').item.json.phone, message: $('Prepare Reply').item.json.reply_text } }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000017",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3520, 160]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "whatsapp_messages"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Prepare Reply').item.json.phone }}",
+            "message": "={{ $('Prepare Reply').item.json.reply_text }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "direction": "outbound",
+            "whatsapp_name": "Skillvard NIOS",
+            "message_id": "={{ 'outbound-' + $now.toMillis() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000018",
+      "name": "Save Outbound Message",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [3740, 160]
     }
   ],
   "connections": {
@@ -315,6 +475,30 @@
     },
     "Merge With Existing Lead": {
       "main": [[{ "node": "Upsert CRM Lead", "type": "main", "index": 0 }]]
+    },
+    "Upsert CRM Lead": {
+      "main": [[{ "node": "Send Nurture?", "type": "main", "index": 0 }]]
+    },
+    "Send Nurture?": {
+      "main": [
+        [{ "node": "Build Nurture Prompt", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Build Nurture Prompt": {
+      "main": [[{ "node": "GPT Nurture Reply", "type": "main", "index": 0 }]]
+    },
+    "GPT Nurture Reply": {
+      "main": [[{ "node": "Prepare Reply", "type": "main", "index": 0 }]]
+    },
+    "Prepare Reply": {
+      "main": [[{ "node": "Human Delay 10-30s", "type": "main", "index": 0 }]]
+    },
+    "Human Delay 10-30s": {
+      "main": [[{ "node": "Send WhatsApp Reply", "type": "main", "index": 0 }]]
+    },
+    "Send WhatsApp Reply": {
+      "main": [[{ "node": "Save Outbound Message", "type": "main", "index": 0 }]]
     }
   },
   "pinData": {},

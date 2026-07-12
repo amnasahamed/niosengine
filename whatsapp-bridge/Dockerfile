@@ -30,11 +30,12 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 
 COPY index.js ./
+COPY docker-entrypoint.sh ./
 
-RUN mkdir -p .wwebjs_auth && chown -R node:node /app
+RUN mkdir -p .wwebjs_auth && chown -R node:node /app && chmod +x docker-entrypoint.sh
 
 USER node
 
 EXPOSE 3001
 
-CMD ["node", "index.js"]
+CMD ["./docker-entrypoint.sh"]
