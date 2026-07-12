@@ -1,4 +1,6 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
@@ -29,9 +31,59 @@ function normalizePhone(raw) {
   const digits = String(raw || '')
     .replace('@c.us', '')
     .replace('@g.us', '')
+    .replace('@lid', '')
     .replace(/\D/g, '');
+
+  if (!digits) return '';
+  // LIDs are very long internal IDs — never treat them as phone numbers
+  if (digits.length > 13) return '';
   if (digits.length === 10) return `91${digits}`;
   return digits;
+}
+
+async function resolvePhone(msg) {
+  const from = msg.from || '';
+
+  if (typeof client.getContactLidAndPhone === 'function') {
+    try {
+      const results = await client.getContactLidAndPhone([from]);
+      const entry = results?.[0];
+      if (entry?.pn) {
+        const phone = normalizePhone(entry.pn);
+        if (phone) return phone;
+      }
+    } catch (error) {
+      console.warn('getContactLidAndPhone failed:', error.message);
+    }
+  }
+
+  try {
+    const contact = await msg.getContact();
+    if (contact.number) {
+      const phone = normalizePhone(contact.number);
+      if (phone) return phone;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (from.endsWith('@c.us')) {
+    const phone = normalizePhone(from);
+    if (phone) return phone;
+  }
+
+  try {
+    const chat = await msg.getChat();
+    const digits = String(chat?.name || '').replace(/\D/g, '');
+    if (digits.length >= 10 && digits.length <= 13) {
+      const phone = normalizePhone(digits);
+      if (phone) return phone;
+    }
+  } catch {
+    // ignore
+  }
+
+  return '';
 }
 
 function sleep(ms) {
@@ -94,14 +146,46 @@ async function forwardToN8n(payload) {
   throw lastError;
 }
 
+function cleanChromiumLocks() {
+  const authDir = path.resolve('./.wwebjs_auth');
+  const lockNames = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return;
+    for (const name of lockNames) {
+      const lockPath = path.join(dir, name);
+      if (fs.existsSync(lockPath)) {
+        try {
+          fs.unlinkSync(lockPath);
+          console.log(`Removed stale Chromium lock: ${lockPath}`);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(path.join(dir, entry.name));
+    }
+  }
+
+  walk(authDir);
+}
+
+async function destroyClient() {
+  try {
+    await client.destroy();
+  } catch {
+    // ignore
+  }
+  isInitializing = false;
+}
+
 const puppeteerArgs = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
   '--disable-gpu',
   '--no-first-run',
-  '--no-zygote',
-  '--single-process',
 ];
 
 const client = new Client({
@@ -116,12 +200,13 @@ const client = new Client({
 async function startWhatsAppClient() {
   if (isInitializing) return;
   isInitializing = true;
+  cleanChromiumLocks();
   try {
     await client.initialize();
   } catch (error) {
     whatsappState = 'error';
     console.error('WhatsApp initialize failed:', error.message);
-    isInitializing = false;
+    await destroyClient();
     setTimeout(() => {
       console.log('Retrying WhatsApp connection...');
       startWhatsAppClient();
@@ -152,10 +237,10 @@ client.on('authenticated', () => {
 client.on('disconnected', (reason) => {
   whatsappState = 'disconnected';
   latestQr = null;
-  isInitializing = false;
   console.error('WhatsApp disconnected:', reason);
-  setTimeout(() => {
+  setTimeout(async () => {
     console.log('Reconnecting WhatsApp...');
+    await destroyClient();
     startWhatsAppClient();
   }, 10000);
 });
@@ -172,7 +257,11 @@ client.on('message', async (msg) => {
     if (msg.from.endsWith('@g.us')) return;
     if (!msg.body?.trim()) return;
 
-    const phone = normalizePhone(msg.from);
+    const phone = await resolvePhone(msg);
+    if (!phone) {
+      console.warn(`Skipping message — could not resolve real phone for ${msg.from}`);
+      return;
+    }
     if (ALLOWLIST.length > 0 && !ALLOWLIST.includes(phone)) return;
 
     let whatsappName = '';
