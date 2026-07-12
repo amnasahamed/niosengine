@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+whatsapp-bridge/node_modules/
+whatsapp-bridge/.wwebjs_auth/
+whatsapp-bridge/.env
+.DS_Store
+*.log
