@@ -32,7 +32,7 @@ RUN npm ci --omit=dev
 COPY index.js ./
 COPY docker-entrypoint.sh ./
 
-RUN mkdir -p .wwebjs_auth && chown -R node:node /app && chmod +x docker-entrypoint.sh
+RUN mkdir -p .wwebjs_auth media && chown -R node:node /app && chmod +x docker-entrypoint.sh
 
 USER node
 

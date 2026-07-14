@@ -1,0 +1,908 @@
+{
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "whatsapp-crm",
+                "options": {}
+            },
+            "id": "80edbc2f-fbf0-4f88-9719-ad80a64e7ce8",
+            "name": "WhatsApp Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                -1120,
+                96
+            ],
+            "webhookId": "whatsapp-crm"
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "id": "should-nurture",
+                            "leftValue": "={{ $('Merge With Existing Lead1').item.json.should_nurture }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "2acc7c8d-1eed-4b5f-99ed-344df6b60b13",
+            "name": "Send Nurture?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                1328,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const ctx = $('Merge With Existing Lead1').first().json;\nconst stage = ctx.nurture_stage || 'ask_name';\nconst style = ctx.reply_style || 'en';\nconst mode = ctx.reply_mode || 'chat';\n\nconst NIOS_KNOWLEDGE = `NIOS / Skillvard knowledge (use only when relevant; never dump everything):\n\nTOC / Credit transfer:\n- Only for students who failed regular school within last 5 years\n- Can transfer max 2 passed subjects to NIOS\n- Need original failed certificate in hand\n- Plus Two needs 5 subjects total \u2192 transfer 2 + write 3 new ones\n- New certificate will show all 5\n\nExams:\n- Fully offline\n- Center near Aadhaar address\n\nApprovals:\n- PSC, UPSC, NEET, abroad \u2014 approved\n\nFees / duration:\n- Do NOT invent exact fees or month counts\n- Say counsellor will confirm exact fee and timeline shortly`;\n\nconst stageGoal = {\n  ask_name: 'You do NOT know their name yet. Warmly greet and ask ONLY for their name. Do not use any guessed name from WhatsApp profile.',\n  ask_qualification: 'You know their name. Ask ONLY whether they want Plus Two or 10th/SSLC admission through NIOS.',\n  ask_pass_fail: 'Ask ONLY: did they fail an exam earlier, OR is this their first time attempting?',\n  ask_stream: 'Ask ONLY which stream: Science, Commerce, or Arts. Put each option on its own line.',\n  ask_failed_subjects: 'Ask ONLY how many subjects failed and which ones.',\n  ask_certificate: 'Ask ONLY if they have the original failed mark sheet (needed for TOC). One short reason is fine.',\n  ask_place: 'Ask ONLY which district/place they are from in Kerala.',\n  complete: 'Profile is complete. Thank them briefly and say counsellor will guide next steps. Offer to take doubts.'\n}[stage] || 'Continue the admission conversation naturally with ONE clear next question.';\n\nconst styleLine = style === 'ml'\n  ? 'Write in simple Malayalam script.'\n  : style === 'manglish'\n    ? 'Write in natural Manglish (casual Kerala WhatsApp mix of English + Malayalam roman).'\n    : 'Write in simple clear English.';\n\nconst systemPrompt = `You are a real admission counsellor at Skillvard NIOS, Kerala, texting on WhatsApp.\n\nGoal: natural, logical lead nurture. Collect details step by step, answer doubts when asked, never sound like a form bot.\n\n${styleLine}\n\nHARD RULES\n- NEVER use WhatsApp profile/display name. Only use a name if it is listed under Already known.\n- Ask ONE main thing at a time (unless briefly answering a question first).\n- If student asked a question (fees, months, TOC, exams, etc.), answer that first in 2-4 short lines, THEN ask the current stage question.\n- If they refuse name or reply oddly, soft retry \u2014 do not paste the same line again.\n- Never dump brochure paragraphs.\n- Short lines. Blank line between sections.\n- Max 90 words.\n- No emojis. No markdown. No bullet symbols.\n- Never invent exact fees or course month counts.\n- Sound human \u2014 like a counsellor texting, not a chatbot.\n- Return ONLY the WhatsApp message text.\n\nCURRENT STAGE GOAL\n${stageGoal}\n\n${NIOS_KNOWLEDGE}`;\n\nconst known = [\n  ctx['Student Name'] ? `Name: ${ctx['Student Name']}` : null,\n  ctx['Class/Level'] ? `Class/Level: ${ctx['Class/Level']}` : null,\n  ctx.Stream ? `Stream: ${ctx.Stream}` : null,\n  ctx['Exam Result'] ? `Exam result: ${ctx['Exam Result']}` : null,\n  ctx['Subjects Failed'] ? `Failed subjects: ${ctx['Subjects Failed']}` : null,\n  ctx['Has Certificate'] ? `Has certificate: ${ctx['Has Certificate']}` : null,\n  ctx.Place ? `Place: ${ctx.Place}` : null\n].filter(Boolean).join('\\n');\n\nconst userPrompt = `Stage: ${stage}\nMode: ${mode}\nStyle: ${style}\n\nAlready known (do not re-ask these):\n${known || 'Nothing yet \u2014 you do NOT know their name'}\n\nRecent chat:\n${ctx.chat_history || '(first message)'}\n\nStudent just said:\n${ctx.latest_message}\n\nWrite the next WhatsApp reply.`;\n\nreturn [{\n  json: {\n    phone: ctx.Phone,\n    nurture_stage: stage,\n    reply_mode: mode,\n    reply_style: style,\n    openai_body: {\n      model: 'gpt-4o',\n      temperature: 0.7,\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ]\n    }\n  }\n}];"
+            },
+            "id": "05d4503c-0f60-4db4-a4a3-dcf681f4d41a",
+            "name": "Build Nurture Prompt",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1552,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.openai.com/v1/chat/completions",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "openAiApi",
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ $json.openai_body }}",
+                "options": {
+                    "timeout": 60000
+                }
+            },
+            "id": "a6367822-e7cd-41dd-b67a-fe3dc7b4ca85",
+            "name": "GPT Nurture Reply",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1776,
+                32
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "id": "ZjWqtqFFdyzB3aeT",
+                    "name": "OpenAi account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const ctx = $('Build Nurture Prompt').first().json;\nconst merge = $('Merge With Existing Lead1').first().json;\nconst aiRaw = $input.first().json;\n\nlet reply = aiRaw.choices?.[0]?.message?.content?.trim() || '';\nreply = reply.replace(/^[\"']|[\"']$/g, '').trim();\n\n// Soft fallback only if model returns empty\nif (!reply) {\n  const style = merge.reply_style || 'en';\n  const stage = merge.nurture_stage || 'ask_name';\n  if (stage === 'ask_name') {\n    reply = style === 'ml'\n      ? '\u0d39\u0d3e\u0d2f\u0d4d,\\n\\nSkillvard NIOS \u0d28\u0d3f\u0d28\u0d4d\u0d28\u0d3e\u0d23\u0d4d.\\n\\n\u0d28\u0d3f\u0d19\u0d4d\u0d19\u0d33\u0d41\u0d1f\u0d46 \u0d2a\u0d47\u0d30\u0d4d \u0d2a\u0d31\u0d2f\u0d3e\u0d2e\u0d4b?'\n      : style === 'manglish'\n        ? 'Hi,\\n\\nSkillvard NIOS aanu.\\n\\nNingalude peru parayamo?'\n        : 'Hi,\\n\\nThanks for reaching out to Skillvard NIOS.\\n\\nMay I know your name?';\n  } else {\n    reply = style === 'ml'\n      ? '\u0d36\u0d30\u0d3f, \u0d12\u0d30\u0d41 \u0d28\u0d3f\u0d2e\u0d3f\u0d37\u0d02.\\n\\n\u0d08 \u0d35\u0d3f\u0d35\u0d30\u0d02 \u0d12\u0d28\u0d4d\u0d28\u0d4d \u0d15\u0d42\u0d1f\u0d3f \u0d2a\u0d31\u0d2f\u0d3e\u0d2e\u0d4b?'\n      : style === 'manglish'\n        ? 'Okay, one second.\\n\\nEe detail onnu koode parayamo?'\n        : 'Okay, one second.\\n\\nCould you share that detail once more?';\n  }\n}\n\n// Break accidental long paragraphs\nif (reply && !reply.includes('\\n') && reply.length > 140) {\n  reply = reply\n    .replace(/\\. ([A-Z\\u0D05-\\u0D7F])/g, '.\\n\\n$1')\n    .replace(/\\? ([A-Z\\u0D05-\\u0D7F])/g, '?\\n\\n$1');\n}\n\nconst wait_seconds = Math.floor(Math.random() * 16) + 8;\n\nreturn [{\n  json: {\n    phone: ctx.phone,\n    reply_text: reply,\n    nurture_stage: merge.nurture_stage,\n    reply_style: merge.reply_style,\n    wait_seconds\n  }\n}];"
+            },
+            "id": "3768c85d-ca0a-4010-820e-524fc6c0d6a8",
+            "name": "Prepare Reply",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                2000,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "amount": "={{ $json.wait_seconds }}"
+            },
+            "id": "5b1b4a2d-e426-446a-b976-5bc19f2a8932",
+            "name": "Human Delay 10-30s",
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1.1,
+            "position": [
+                2224,
+                32
+            ],
+            "webhookId": "whatsapp-nurture-wait"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "http://niostech-whatsapp:3001/send",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "x-api-token",
+                            "value": "D4fgRt46Y7@rsg%sdhgd%^!YTOsd"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ { phone: $('Prepare Reply').item.json.phone, message: $('Prepare Reply').item.json.reply_text } }}",
+                "options": {
+                    "timeout": 30000
+                }
+            },
+            "id": "f4af319c-56e6-43bc-b644-0f16b896ac06",
+            "name": "Send WhatsApp Reply",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                2448,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "name",
+                    "value": "whatsapp_messages"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "phone": "={{ $('Prepare Reply').item.json.phone }}",
+                        "message": "={{ $('Prepare Reply').item.json.reply_text }}",
+                        "timestamp": "={{ $now.toISO() }}",
+                        "direction": "outbound",
+                        "whatsapp_name": "Skillvard NIOS",
+                        "message_id": "={{ 'outbound-' + $now.toMillis() }}"
+                    }
+                },
+                "options": {}
+            },
+            "id": "c14cfd9d-1d69-4e09-8bc1-e871ddb0a396",
+            "name": "Save Outbound Message",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1,
+            "position": [
+                2672,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "phone",
+                            "name": "phone",
+                            "value": "={{ (() => { const d = String($json.body?.phone || $json.phone || '').replace(/\\D/g, ''); if (d.length === 10) return '91' + d; return d; })() }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "message",
+                            "name": "message",
+                            "value": "={{ (() => { const b = $json.body || $json; const raw = String(b.message || '').trim(); const type = String(b.message_type || b.type || b.media_type || '').toLowerCase(); const mime = String(b.mimetype || b.mime_type || '').toLowerCase(); const isAudio = ['audio', 'ptt', 'voice', 'audiomessage'].includes(type) || (b.hasMedia && /audio|ptt|ogg|opus|mpeg/.test(mime)); if (isAudio && !raw) return '[voice note]'; return raw; })() }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "timestamp",
+                            "name": "timestamp",
+                            "value": "={{ $json.body?.timestamp || $json.timestamp || $now.toISO() }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "whatsapp_name",
+                            "name": "whatsapp_name",
+                            "value": "={{ $json.body?.whatsapp_name || $json.whatsapp_name || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "direction",
+                            "name": "direction",
+                            "value": "={{ $json.body?.direction || $json.direction || 'inbound' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "message_id",
+                            "name": "message_id",
+                            "value": "={{ $json.body?.message_id || $json.message_id || '' }}",
+                            "type": "string"
+                        },
+                        {
+                            "id": "is_audio",
+                            "name": "is_audio",
+                            "value": "={{ (() => { const b = $json.body || $json; const type = String(b.message_type || b.type || b.media_type || '').toLowerCase(); const mime = String(b.mimetype || b.mime_type || '').toLowerCase(); const msg = String(b.message || '').trim(); return ['audio', 'ptt', 'voice', 'audiomessage'].includes(type) || (b.hasMedia && /audio|ptt|ogg|opus|mpeg/.test(mime)) || msg === '[voice note]'; })() }}",
+                            "type": "boolean"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "6973497e-2854-444f-aca9-c1303a513268",
+            "name": "Normalize Message1",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                -912,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 1
+                    },
+                    "conditions": [
+                        {
+                            "id": "has-phone",
+                            "leftValue": "={{ $json.phone }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            }
+                        },
+                        {
+                            "id": "has-message",
+                            "leftValue": "={{ $json.message || ($json.is_audio ? '[voice note]' : '') }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "64d69de7-eb27-43fa-84d9-e24eadbf7e31",
+            "name": "Valid Message?1",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                -688,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "name",
+                    "value": "whatsapp_messages"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "phone": "={{ $json.phone }}",
+                        "message": "={{ $json.message }}",
+                        "timestamp": "={{ $json.timestamp }}",
+                        "direction": "={{ $json.direction }}",
+                        "whatsapp_name": "={{ $json.whatsapp_name }}",
+                        "message_id": "={{ $json.message_id }}"
+                    }
+                },
+                "options": {}
+            },
+            "id": "0f47f454-8ecd-4c09-82cd-e53b7915210f",
+            "name": "Save to Data Table1",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1,
+            "position": [
+                -464,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "get",
+                "dataTableId": {
+                    "__rl": true,
+                    "mode": "name",
+                    "value": "whatsapp_messages"
+                },
+                "filters": {
+                    "conditions": [
+                        {
+                            "keyName": "phone",
+                            "keyValue": "={{ $('Normalize Message1').item.json.phone }}"
+                        }
+                    ]
+                },
+                "limit": 20
+            },
+            "id": "d0f62443-9627-4f1b-b0db-70b9dd0d832c",
+            "name": "Get Chat History1",
+            "type": "n8n-nodes-base.dataTable",
+            "typeVersion": 1,
+            "position": [
+                -240,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const normalized = $('Normalize Message1').first().json;\nconst historyItems = $('Get Chat History1').all();\n\nconst history = historyItems\n  .map((item) => item.json)\n  .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))\n  .map((row) => `[${row.timestamp}] ${row.direction}: ${row.message}`)\n  .join('\\n');\n\nconst systemPrompt = `You are a CRM assistant for Skillvard NIOS, Kerala (NIOS Plus Two admission coaching).\n\nExtract lead information from WhatsApp conversations. Return ONLY valid JSON with these keys:\n{\n  \"student_name\": string | null,\n  \"alternate_phone\": string | null,\n  \"class_level\": string | null,\n  \"stream\": string | null,\n  \"exam_result\": \"fail\" | \"first_attempt\" | \"appearing\" | null,\n  \"subjects_failed\": string[] | null,\n  \"subjects_count\": number | null,\n  \"has_certificate\": \"yes\" | \"no\" | null,\n  \"place\": string | null,\n  \"price_disclosed\": string | null,\n  \"intent\": \"new_inquiry\" | \"fee_inquiry\" | \"demo_request\" | \"follow_up\" | \"not_interested\" | \"enrolled\" | \"other\",\n  \"lead_status\": \"New\" | \"Contacted\" | \"Interested\" | \"Follow-up\" | \"Lost\" | \"Enrolled\",\n  \"lost_reason\": string | null,\n  \"next_followup_days\": number | null,\n  \"remarks\": string\n}\n\nRules:\n- student_name: ONLY when the student explicitly tells their name in a chat message (e.g. replies \"Amna\" after being asked, or says \"I am Rahul\"). NEVER use the WhatsApp display/profile name. If they only said hi/hello, return null.\n- class_level: e.g. Plus Two, 12th, 10th, SSLC. If counsellor asked a yes/no question about Plus Two and student replied yes/yeah/yep, set class_level to Plus Two.\n- stream: Science, Commerce, Arts. If student replies with just one of these words, set stream accordingly.\n- exam_result: \"fail\" if student failed a previous board exam; \"first_attempt\" if this is their first time attempting the exam. Infer from context (e.g. \"first time\", \"no I didn't fail\", \"failed\", \"yes I failed\").\n- has_certificate: yes/no \u2014 whether they have the original failed mark sheet/certificate in hand (needed for TOC)\n- place: district or town in Kerala\n- subjects_failed: array like [\"Physics\", \"Chemistry\"]\n- subjects_count: number of failed subjects mentioned\n- price_disclosed: fee amount if discussed, otherwise \"No\"\n- remarks: 2-3 sentence summary of the FULL conversation history\n- Use null for unknown fields\n- lead_status must align with intent`;\n\nconst userPrompt = `Phone: ${normalized.phone}\n\nConversation history:\n${history || `[${normalized.timestamp}] inbound: ${normalized.message}`}\n\nLatest message:\n${normalized.message}\n\nNote: WhatsApp profile name is NOT the student name \u2014 ignore it completely.`;\n\nreturn [{\n  json: {\n    ...normalized,\n    openai_body: {\n      model: 'gpt-4o',\n      temperature: 0.2,\n      response_format: { type: 'json_object' },\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ]\n    }\n  }\n}];"
+            },
+            "id": "e70cf5cd-2208-4432-8670-49798ff05be9",
+            "name": "Build AI Prompt1",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                -16,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.openai.com/v1/chat/completions",
+                "authentication": "predefinedCredentialType",
+                "nodeCredentialType": "openAiApi",
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ $json.openai_body }}",
+                "options": {
+                    "timeout": 60000
+                }
+            },
+            "id": "c508efd4-cc26-4795-942e-06390fbc3092",
+            "name": "GPT-4o Extract1",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                208,
+                32
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "id": "ZjWqtqFFdyzB3aeT",
+                    "name": "OpenAi account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const normalized = $('Build AI Prompt1').first().json;\nconst aiRaw = $input.first().json;\n\nlet extracted = {};\ntry {\n  const content = aiRaw.choices?.[0]?.message?.content || '{}';\n  extracted = JSON.parse(content);\n} catch (e) {\n  extracted = {\n    student_name: null,\n    intent: 'other',\n    lead_status: 'Contacted',\n    remarks: normalized.message\n  };\n}\n\nconst historyItems = $('Get Chat History1').all().map((item) => item.json);\n\nfunction confirmStudentName(name, history, whatsappName) {\n  const n = String(name || '').trim();\n  if (!n || n.length < 2) return '';\n  if (/LLP|TECHNOLOGIES|PVT|LTD|COMPANY|SHOP|STORE|BASE OF/i.test(n)) return '';\n  if (/^(hi|hello|hey|student|user|there|ok|yes|no)$/i.test(n)) return '';\n\n  const sorted = [...historyItems].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));\n  const inbound = sorted.filter((r) => r.direction === 'inbound').map((r) => String(r.message || '').trim());\n  const nameLower = n.toLowerCase();\n  const waLower = String(whatsappName || '').trim().toLowerCase();\n  const askedForName = sorted.some((r) =>\n    r.direction === 'outbound' && /(your name|know your name|may i know|peru|\u0d2a\u0d47\u0d30\u0d4d)/i.test(String(r.message || ''))\n  );\n\n  for (const msg of inbound) {\n    const m = msg.toLowerCase();\n    if (/^(my name is|i am|i'm|im |ente peru|enikku peru|nan |call me)/i.test(msg)) {\n      if (m.includes(nameLower) || nameLower.split(/\\s+/).some((part) => part.length > 2 && m.includes(part))) return n;\n    }\n    if (askedForName && msg.length <= 35 && /^[a-zA-Z\\u0D00-\\u0D7F][\\w\\u0D00-\\u0D7F\\s.'-]*$/i.test(msg)) {\n      const msgLower = msg.toLowerCase();\n      if (msgLower === nameLower || nameLower.startsWith(msgLower) || msgLower.startsWith(nameLower.split(' ')[0])) return msg.trim();\n    }\n  }\n\n  if (waLower && (nameLower === waLower || waLower.startsWith(nameLower) || nameLower === waLower.split(/\\s+/)[0])) return '';\n  return '';\n}\n\nconst confirmedName = confirmStudentName(extracted.student_name, historyItems, normalized.whatsapp_name);\n\nfunction inferFromContext(data, history, latestMsg) {\n  const sorted = [...history].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));\n  const lastOutbound = [...sorted].reverse().find((r) => r.direction === 'outbound');\n  const lastOut = String(lastOutbound?.message || '').toLowerCase();\n  const latest = String(latestMsg || '').trim().toLowerCase();\n  const out = { ...data };\n\n  if (!out.class_level && /^(yes|yeah|yep|correct|y)$/i.test(latest)) {\n    if (/plus two|12th|plus 2/i.test(lastOut)) out.class_level = 'Plus Two';\n    else if (/10th|sslc|tenth/i.test(lastOut)) out.class_level = '10th';\n  }\n\n  if (!out.exam_result) {\n    if (/fail|failed/i.test(latest) || (latest === 'yes' && /did you fail|fail your exam/i.test(lastOut))) {\n      out.exam_result = 'fail';\n    } else if (/first time|first attempt|first/i.test(latest) || (latest === 'no' && /did you fail|first time/i.test(lastOut))) {\n      out.exam_result = 'first attempt';\n    }\n  }\n\n  if (!out.stream && /^(science|commerce|arts)$/i.test(latest)) {\n    out.stream = latest.charAt(0).toUpperCase() + latest.slice(1);\n  }\n\n  return out;\n}\n\nextracted = inferFromContext(extracted, historyItems, normalized.message);\n\nconst intentMap = {\n  new_inquiry: 'New',\n  fee_inquiry: 'Interested',\n  demo_request: 'Interested',\n  follow_up: 'Follow-up',\n  not_interested: 'Lost',\n  enrolled: 'Enrolled',\n  other: 'Contacted'\n};\n\nconst leadStatus = extracted.lead_status || intentMap[extracted.intent] || 'Contacted';\nconst subjects = Array.isArray(extracted.subjects_failed)\n  ? extracted.subjects_failed.filter(Boolean)\n  : [];\n\nconst followupDays = Number(extracted.next_followup_days);\nconst nextFollowUp = Number.isFinite(followupDays) && followupDays > 0\n  ? new Date(Date.now() + followupDays * 86400000).toISOString().slice(0, 10)\n  : '';\n\nconst today = new Date().toISOString().slice(0, 10);\nconst lastContacted = String(normalized.timestamp).slice(0, 10);\n\nfunction normalizePhone(value) {\n  const digits = String(value || '').replace(/\\D/g, '');\n  if (digits.length === 10) return '91' + digits;\n  return digits;\n}\n\nfunction normalizeExamResult(value) {\n  const v = String(value || '').trim().toLowerCase();\n  if (!v) return '';\n  if (/first|first time|first attempt|never|fresh/i.test(v)) return 'First attempt';\n  if (/fail|failed|supplementary|compartment/.test(v)) return 'Fail';\n  if (/appear|studying|writing/i.test(v)) return 'Appearing';\n  return value;\n}\n\nfunction normalizeYesNo(value) {\n  const v = String(value || '').trim().toLowerCase();\n  if (!v) return '';\n  if (/^(yes|y|\u0d09\u0d23\u0d4d\u0d1f\u0d4d|\u0d06\u0d23\u0d4d|und|unde|correct|ok)$/.test(v)) return 'Yes';\n  if (/^(no|n|\u0d07\u0d32\u0d4d\u0d32|illa|negative)$/.test(v)) return 'No';\n  return value;\n}\n\nconst phone = normalizePhone(normalized.phone);\n\nreturn [{\n  json: {\n    phone,\n    lead_id: `WA-${phone}`,\n    date: today,\n    student_name: confirmedName,\n    alternate_phone: extracted.alternate_phone ? normalizePhone(extracted.alternate_phone) : '',\n    class_level: extracted.class_level || '',\n    stream: extracted.stream || '',\n    exam_result: normalizeExamResult(extracted.exam_result),\n    subjects_failed: subjects.join(', '),\n    subjects_count: extracted.subjects_count ?? (subjects.length || ''),\n    has_certificate: normalizeYesNo(extracted.has_certificate),\n    place: extracted.place || '',\n    source: 'WhatsApp',\n    price_disclosed: extracted.price_disclosed || 'No',\n    lead_status: leadStatus,\n    lost_reason: extracted.lost_reason || '',\n    assigned_to: '',\n    last_contacted: lastContacted,\n    next_follow_up: nextFollowUp,\n    remarks: extracted.remarks || normalized.message\n  }\n}];"
+            },
+            "id": "2f03ed61-279f-44d2-bbb8-0fdbd25028bb",
+            "name": "Map to CRM Fields1",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                432,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "documentId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "10zXMy_k8mbLlrKRU8o5ug3gd06jZ0KqZRWsoKOa2BA4"
+                },
+                "sheetName": {
+                    "__rl": true,
+                    "mode": "name",
+                    "value": "Sheet1"
+                },
+                "options": {}
+            },
+            "id": "7a3e670f-f9d9-4b62-9c91-b5a6aa7c0a5a",
+            "name": "Read CRM Sheet1",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.7,
+            "position": [
+                656,
+                32
+            ],
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "id": "MW70nhiJrfZTC2E0",
+                    "name": "Google Sheets account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "const lead = $('Map to CRM Fields1').first().json;\nconst rows = $input.all().map((item) => item.json);\nconst history = $('Get Chat History1').all().map((item) => item.json);\nconst normalized = $('Normalize Message1').first().json;\n\nfunction normalizePhone(value) {\n  const digits = String(value || '').replace(/\\D/g, '');\n  if (digits.length === 10) return '91' + digits;\n  return digits;\n}\n\nfunction phoneKey(value) {\n  return normalizePhone(value).slice(-10);\n}\n\nfunction isRealName(name, history, whatsappName) {\n  const n = String(name || '').trim();\n  if (!n || n.length < 2) return false;\n  if (/LLP|TECHNOLOGIES|PVT|LTD|COMPANY|SHOP|STORE|BASE OF/i.test(n)) return false;\n  if (/^(hi|hello|hey|student|user|there|ok|yes|no|haloo|hallo|hai)$/i.test(n)) return false;\n\n  const sorted = [...history].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));\n  const inbound = sorted.filter((r) => r.direction === 'inbound').map((r) => String(r.message || '').trim());\n  const nameLower = n.toLowerCase();\n  const waLower = String(whatsappName || '').trim().toLowerCase();\n  const askedForName = sorted.some((r) =>\n    r.direction === 'outbound' && /(your name|know your name|may i know|peru|\u0d2a\u0d47\u0d30\u0d4d)/i.test(String(r.message || ''))\n  );\n\n  for (const msg of inbound) {\n    const m = msg.toLowerCase();\n    if (/^(my name is|i am|i'm|im |ente peru|enikku peru|nan |call me)/i.test(msg)) {\n      if (m.includes(nameLower) || nameLower.split(/\\s+/).some((part) => part.length > 2 && m.includes(part))) return true;\n    }\n    if (askedForName && msg.length <= 40 && /^[a-zA-Z\\u0D00-\\u0D7F.][\\w\\u0D00-\\u0D7F\\s.'-]*$/i.test(msg)) {\n      const msgLower = msg.toLowerCase();\n      if (msgLower === nameLower || nameLower.startsWith(msgLower) || msgLower.startsWith(nameLower.split(' ')[0])) return true;\n    }\n  }\n\n  if (waLower && (nameLower === waLower || waLower.startsWith(nameLower) || nameLower === waLower.split(/\\s+/)[0])) return false;\n  return false;\n}\n\nfunction detectStyle(latestMsg, chatHistory, remarks) {\n  const blob = `${latestMsg}\\n${chatHistory || ''}\\n${remarks || ''}`.toLowerCase();\n  if (/\\[lang:ml\\]|speaking malayalam|malayalam script|[\\u0d00-\\u0d7f]/.test(blob)) return 'ml';\n  if (/\\[lang:manglish\\]|speaking manglish|\\b(aano|aanu|ningal|njan|enth|parayamo|paranj|tharamoo|ayittundo|illengil|cheythu|mumbu|peru|ethu|ethra|undo|illa|ithinte|onn)\\b/i.test(blob)) return 'manglish';\n  return 'en';\n}\n\nfunction looksLikeQuestion(msg) {\n  const t = String(msg || '').trim();\n  if (!t) return false;\n  if (/^(hi|hello|hey|haloo|hallo|hai|ok|okay|yes|no|yeah|yep)$/i.test(t)) return false;\n  return /\\?|how many|how much|cost|fee|fees|price|details|duration|month|months|what about|paranj|tharam|enth|ento|detail|toc|certificate|exam|\u0d28\u0d2e\u0d41\u0d15\u0d4d\u0d15\u0d4d|\u0d0e\u0d28\u0d4d\u0d24\u0d4d|\u0d0e\u0d24\u0d4d\u0d30|\u0d2b\u0d40\u0d38\u0d4d/i.test(t);\n}\n\nfunction isVoiceNote(text) {\n  const t = String(text || '').trim().toLowerCase();\n  return t === '[voice note]' || t === '[audio]' || t === 'voice note';\n}\n\nconst targetKey = phoneKey(lead.phone);\nlet existing = null;\n\nfor (const row of rows) {\n  const rowKey = phoneKey(row.Phone || row.phone);\n  const altKey = phoneKey(row['Alternate Phone'] || row.alternate_phone);\n  if ((rowKey && rowKey === targetKey) || (altKey && altKey === targetKey)) {\n    existing = row;\n    break;\n  }\n}\n\nconst followups = existing\n  ? (Number(existing['Follow-ups Count'] || existing.follow_ups_count || 0) + 1)\n  : 1;\n\nconst pick = (next, prev) => {\n  if (next !== null && next !== undefined && String(next).trim() !== '') return next;\n  return prev || '';\n};\n\nconst phone = normalizePhone(existing?.Phone || lead.phone);\nconst rawName = pick(lead.student_name, existing?.['Student Name']);\nconst confirmedName = isRealName(rawName, history, normalized.whatsapp_name) ? rawName : '';\n\nlet remarks = lead.remarks || existing?.Remarks || '';\nconst latestLower = String(normalized.message || '').toLowerCase();\nif (/speaking malayalam|malayalam script/.test(latestLower) && !/\\[lang:ml\\]/.test(remarks)) {\n  remarks = `${remarks} [lang:ml]`.trim();\n}\nif (/speaking manglish/.test(latestLower) && !/\\[lang:manglish\\]/.test(remarks)) {\n  remarks = `${remarks} [lang:manglish]`.trim();\n}\n\nconst merged = {\n  'Lead ID': existing?.['Lead ID'] || lead.lead_id,\n  'Date': existing?.Date || lead.date,\n  'Student Name': confirmedName,\n  'Phone': phone,\n  'Alternate Phone': pick(lead.alternate_phone, existing?.['Alternate Phone']),\n  'Class/Level': pick(lead.class_level, existing?.['Class/Level']),\n  'Stream': pick(lead.stream, existing?.['Stream']),\n  'Exam Result': pick(lead.exam_result, existing?.['Exam Result']),\n  'Subjects Failed': pick(lead.subjects_failed, existing?.['Subjects Failed']),\n  'Subjects Count': pick(lead.subjects_count, existing?.['Subjects Count']),\n  'Has Certificate': pick(lead.has_certificate, existing?.['Has Certificate']),\n  'Place': pick(lead.place, existing?.['Place']),\n  'Source': existing?.Source || lead.source,\n  'Price Disclosed': pick(lead.price_disclosed, existing?.['Price Disclosed']),\n  'Lead Status': lead.lead_status || existing?.['Lead Status'] || 'Contacted',\n  'Lost Reason': pick(lead.lost_reason, existing?.['Lost Reason']),\n  'Assigned To': existing?.['Assigned To'] || '',\n  'Last Contacted': lead.last_contacted,\n  'Next Follow-up': pick(lead.next_follow_up, existing?.['Next Follow-up']),\n  'Follow-ups Count': followups,\n  'Remarks': remarks\n};\n\nfunction getNurtureStage(data) {\n  const name = String(data['Student Name'] || '').trim();\n  const level = String(data['Class/Level'] || '').trim();\n  const stream = String(data['Stream'] || '').trim();\n  const examResult = String(data['Exam Result'] || '').trim().toLowerCase();\n  const subjectsFailed = String(data['Subjects Failed'] || '').trim();\n  const hasCert = String(data['Has Certificate'] || '').trim();\n  const place = String(data['Place'] || '').trim();\n\n  if (!name) return 'ask_name';\n  if (!level) return 'ask_qualification';\n  if (!examResult) return 'ask_pass_fail';\n  if (/plus two|12th|xii|plus 2|\\+2|twelfth/i.test(level) && !stream) return 'ask_stream';\n  if (examResult.includes('fail') && !subjectsFailed) return 'ask_failed_subjects';\n  if (examResult.includes('fail') && !hasCert) return 'ask_certificate';\n  if (!place) return 'ask_place';\n  return 'complete';\n}\n\nconst nurtureStage = getNurtureStage(merged);\nconst leadStatus = String(merged['Lead Status'] || '').toLowerCase();\nconst latestMsg = String(normalized.message || '');\nconst isQuestion = looksLikeQuestion(latestMsg);\nconst replyStyle = detectStyle(latestMsg, history.map((r) => r.message).join('\\n'), remarks);\n\nconst sortedHistory = [...history].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));\nconst lastOutbound = [...sortedHistory].reverse().find((r) => r.direction === 'outbound');\nconst lastOutboundText = String(lastOutbound?.message || '');\nconst lastOutboundAgeMs = lastOutbound ? (Date.now() - new Date(lastOutbound.timestamp).getTime()) : Infinity;\n\nconst hasAudioInbound = Boolean(normalized.is_audio) ||\n  isVoiceNote(normalized.message) ||\n  history.some((r) => r.direction === 'inbound' && isVoiceNote(r.message));\n\nconst isEnriched = nurtureStage === 'complete';\n\nif (hasAudioInbound) {\n  merged['Lead Status'] = 'Follow-up';\n  merged['Remarks'] = `${merged['Remarks'] || ''} [Voice note received - manual follow-up needed]`.trim();\n}\n\n// Duplicate protection: same stage template already sent in last 90s and latest msg is not a question\nconst stageHints = {\n  ask_name: /may i know your name|peru parayamo|\u0d2a\u0d47\u0d30\u0d4d \u0d2a\u0d31\u0d2f\u0d3e\u0d2e\u0d4b/i,\n  ask_qualification: /plus two admission|10th \\/ sslc/i,\n  ask_pass_fail: /fail your exam earlier|first time attempting|first time attempt/i,\n  ask_stream: /which stream|ethu stream|\u0d0f\u0d24\u0d4d stream/i,\n  ask_failed_subjects: /how many subjects|ethra subject|\u0d0e\u0d24\u0d4d\u0d30 subject/i,\n  ask_certificate: /mark sheet|toc/i,\n  ask_place: /which district|ethu district|\u0d0f\u0d24\u0d4d district/i\n};\nconst sameStageRecently =\n  !isQuestion &&\n  lastOutboundAgeMs < 90000 &&\n  stageHints[nurtureStage] &&\n  stageHints[nurtureStage].test(lastOutboundText);\n\nlet replyMode = 'chat';\nif (isQuestion && !isEnriched && !hasAudioInbound) {\n  replyMode = 'answer_then_ask';\n}\n\nconst shouldNurture =\n  normalized.direction === 'inbound' &&\n  !['lost', 'enrolled'].includes(leadStatus) &&\n  !hasAudioInbound &&\n  !isEnriched &&\n  !sameStageRecently;\n\nconst chatHistory = sortedHistory\n  .map((row) => `${row.direction}: ${row.message}`)\n  .join('\\n');\n\nreturn [{\n  json: {\n    ...merged,\n    should_nurture: shouldNurture,\n    nurture_stage: nurtureStage,\n    reply_mode: replyMode,\n    reply_style: replyStyle,\n    has_audio: hasAudioInbound,\n    is_enriched: isEnriched,\n    latest_message: normalized.message,\n    whatsapp_name: normalized.whatsapp_name || '',\n    chat_history: chatHistory\n  }\n}];"
+            },
+            "id": "63a6f975-2a35-436f-8947-469a3d648c77",
+            "name": "Merge With Existing Lead1",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                880,
+                32
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "appendOrUpdate",
+                "documentId": {
+                    "__rl": true,
+                    "mode": "id",
+                    "value": "10zXMy_k8mbLlrKRU8o5ug3gd06jZ0KqZRWsoKOa2BA4"
+                },
+                "sheetName": {
+                    "__rl": true,
+                    "mode": "name",
+                    "value": "Sheet1"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "Lead ID": "={{ $json['Lead ID'] }}",
+                        "Date": "={{ $json.Date }}",
+                        "Student Name": "={{ $json['Student Name'] }}",
+                        "Phone": "={{ $json.Phone }}",
+                        "Alternate Phone": "={{ $json['Alternate Phone'] }}",
+                        "Class/Level": "={{ $json['Class/Level'] }}",
+                        "Stream": "={{ $json.Stream }}",
+                        "Exam Result": "={{ $json['Exam Result'] }}",
+                        "Subjects Failed": "={{ $json['Subjects Failed'] }}",
+                        "Subjects Count": "={{ $json['Subjects Count'] }}",
+                        "Has Certificate": "={{ $json['Has Certificate'] }}",
+                        "Place": "={{ $json.Place }}",
+                        "Source": "={{ $json.Source }}",
+                        "Price Disclosed": "={{ $json['Price Disclosed'] }}",
+                        "Lead Status": "={{ $json['Lead Status'] }}",
+                        "Lost Reason": "={{ $json['Lost Reason'] }}",
+                        "Assigned To": "={{ $json['Assigned To'] }}",
+                        "Last Contacted": "={{ $json['Last Contacted'] }}",
+                        "Next Follow-up": "={{ $json['Next Follow-up'] }}",
+                        "Follow-ups Count": "={{ $json['Follow-ups Count'] }}",
+                        "Remarks": "={{ $json.Remarks }}"
+                    },
+                    "matchingColumns": [
+                        "Phone"
+                    ],
+                    "schema": [
+                        {
+                            "id": "Lead ID",
+                            "displayName": "Lead ID",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Date",
+                            "displayName": "Date",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Student Name",
+                            "displayName": "Student Name",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Phone",
+                            "displayName": "Phone",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Alternate Phone",
+                            "displayName": "Alternate Phone",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Class/Level",
+                            "displayName": "Class/Level",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Stream",
+                            "displayName": "Stream",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Exam Result",
+                            "displayName": "Exam Result",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Subjects Failed",
+                            "displayName": "Subjects Failed",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Subjects Count",
+                            "displayName": "Subjects Count",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Has Certificate",
+                            "displayName": "Has Certificate",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Place",
+                            "displayName": "Place",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Source",
+                            "displayName": "Source",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Price Disclosed",
+                            "displayName": "Price Disclosed",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Lead Status",
+                            "displayName": "Lead Status",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Lost Reason",
+                            "displayName": "Lost Reason",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Assigned To",
+                            "displayName": "Assigned To",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Last Contacted",
+                            "displayName": "Last Contacted",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Next Follow-up",
+                            "displayName": "Next Follow-up",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Follow-ups Count",
+                            "displayName": "Follow-ups Count",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "Remarks",
+                            "displayName": "Remarks",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "b67138ac-5075-480d-b4d8-d038e0a49bf5",
+            "name": "Upsert CRM Lead1",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4.7,
+            "position": [
+                1104,
+                32
+            ],
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "id": "MW70nhiJrfZTC2E0",
+                    "name": "Google Sheets account"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "WhatsApp Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Normalize Message1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send Nurture?": {
+            "main": [
+                [
+                    {
+                        "node": "Build Nurture Prompt",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Nurture Prompt": {
+            "main": [
+                [
+                    {
+                        "node": "GPT Nurture Reply",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "GPT Nurture Reply": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Reply",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare Reply": {
+            "main": [
+                [
+                    {
+                        "node": "Human Delay 10-30s",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Human Delay 10-30s": {
+            "main": [
+                [
+                    {
+                        "node": "Send WhatsApp Reply",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send WhatsApp Reply": {
+            "main": [
+                [
+                    {
+                        "node": "Save Outbound Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Normalize Message1": {
+            "main": [
+                [
+                    {
+                        "node": "Valid Message?1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Valid Message?1": {
+            "main": [
+                [
+                    {
+                        "node": "Save to Data Table1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Save to Data Table1": {
+            "main": [
+                [
+                    {
+                        "node": "Get Chat History1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Chat History1": {
+            "main": [
+                [
+                    {
+                        "node": "Build AI Prompt1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build AI Prompt1": {
+            "main": [
+                [
+                    {
+                        "node": "GPT-4o Extract1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "GPT-4o Extract1": {
+            "main": [
+                [
+                    {
+                        "node": "Map to CRM Fields1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Map to CRM Fields1": {
+            "main": [
+                [
+                    {
+                        "node": "Read CRM Sheet1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Read CRM Sheet1": {
+            "main": [
+                [
+                    {
+                        "node": "Merge With Existing Lead1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge With Existing Lead1": {
+            "main": [
+                [
+                    {
+                        "node": "Upsert CRM Lead1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Upsert CRM Lead1": {
+            "main": [
+                [
+                    {
+                        "node": "Send Nurture?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {
+        "WhatsApp Webhook": [
+            {
+                "headers": {
+                    "host": "n8n:5678",
+                    "connection": "keep-alive",
+                    "content-type": "application/json",
+                    "accept": "*/*",
+                    "accept-language": "*",
+                    "sec-fetch-mode": "cors",
+                    "user-agent": "node",
+                    "accept-encoding": "gzip, deflate",
+                    "content-length": "211"
+                },
+                "params": {},
+                "query": {},
+                "body": {
+                    "phone": "919400195605",
+                    "message": "hi",
+                    "timestamp": "2026-07-13T03:37:23.000Z",
+                    "direction": "inbound",
+                    "whatsapp_name": "BASE OF STARS TECHNOLOGIES LLP",
+                    "message_id": "false_167757849051148@lid_2AC721C8FE8D26D565F7"
+                },
+                "webhookUrl": "https://n8n.srv1326677.hstgr.cloud/webhook/whatsapp-crm",
+                "executionMode": "production"
+            }
+        ]
+    },
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "12cc766758b4aa038d9cc93ee76742c3a8b5d141f0127fbb09dc9070bfcfb1ba"
+    }
+}

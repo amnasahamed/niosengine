@@ -4,6 +4,7 @@
 !.env.bridge.example
 whatsapp-bridge/node_modules/
 whatsapp-bridge/.wwebjs_auth/
+whatsapp-bridge/media/
 whatsapp-bridge/.env
 .DS_Store
 *.log

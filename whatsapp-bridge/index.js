@@ -13,10 +13,22 @@ const N8N_HEALTH_URL =
 const PORT = Number(process.env.PORT || 3001);
 const QR_ACCESS_TOKEN = process.env.QR_ACCESS_TOKEN || '';
 const WEBHOOK_RETRIES = Number(process.env.WEBHOOK_RETRIES || 3);
+const MEDIA_DIR = path.resolve(process.env.MEDIA_DIR || './media');
+const MEDIA_BASE_URL = (process.env.MEDIA_BASE_URL || `http://127.0.0.1:${PORT}`).replace(
+  /\/$/,
+  ''
+);
+const MEDIA_MAX_BYTES = Number(process.env.MEDIA_MAX_MB || 15) * 1024 * 1024;
+const MEDIA_TTL_DAYS = Number(process.env.MEDIA_TTL_DAYS || 14);
 const ALLOWLIST = (process.env.ALLOWLIST || '')
   .split(',')
   .map((n) => n.replace(/\D/g, ''))
   .filter(Boolean);
+
+/** message ids sent via POST /send → classify as AI */
+const bridgeSentIds = new Map();
+/** de-dupe message_create / sync duplicates */
+const recentlyProcessed = new Map();
 
 let latestQr = null;
 let whatsappState = 'initializing';
@@ -25,6 +37,19 @@ let isInitializing = false;
 if (!N8N_WEBHOOK_URL) {
   console.error('Missing N8N_WEBHOOK_URL in .env');
   process.exit(1);
+}
+
+fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pruneMap(map, maxAgeMs) {
+  const now = Date.now();
+  for (const [key, ts] of map.entries()) {
+    if (now - ts > maxAgeMs) map.delete(key);
+  }
 }
 
 function normalizePhone(raw) {
@@ -41,12 +66,13 @@ function normalizePhone(raw) {
   return digits;
 }
 
-async function resolvePhone(msg) {
-  const from = msg.from || '';
+async function resolvePeerPhone(msg) {
+  // Outbound (from phone/AI): peer is `to`. Inbound: peer is `from`.
+  const peerId = msg.fromMe ? msg.to || msg.from : msg.from || '';
 
-  if (typeof client.getContactLidAndPhone === 'function') {
+  if (typeof client.getContactLidAndPhone === 'function' && peerId) {
     try {
-      const results = await client.getContactLidAndPhone([from]);
+      const results = await client.getContactLidAndPhone([peerId]);
       const entry = results?.[0];
       if (entry?.pn) {
         const phone = normalizePhone(entry.pn);
@@ -67,14 +93,15 @@ async function resolvePhone(msg) {
     // ignore
   }
 
-  if (from.endsWith('@c.us')) {
-    const phone = normalizePhone(from);
+  if (String(peerId).endsWith('@c.us')) {
+    const phone = normalizePhone(peerId);
     if (phone) return phone;
   }
 
   try {
     const chat = await msg.getChat();
-    const digits = String(chat?.name || '').replace(/\D/g, '');
+    if (chat?.isGroup) return '';
+    const digits = String(chat?.id?.user || chat?.name || '').replace(/\D/g, '');
     if (digits.length >= 10 && digits.length <= 13) {
       const phone = normalizePhone(digits);
       if (phone) return phone;
@@ -86,15 +113,21 @@ async function resolvePhone(msg) {
   return '';
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function checkQrAccess(req, res) {
   if (!QR_ACCESS_TOKEN) return true;
   const token = req.query.token || req.headers['x-qr-token'];
   if (token !== QR_ACCESS_TOKEN) {
     res.status(401).send('Unauthorized. Provide ?token=YOUR_QR_ACCESS_TOKEN');
+    return false;
+  }
+  return true;
+}
+
+function checkApiToken(req, res) {
+  if (!QR_ACCESS_TOKEN) return true;
+  const token = req.headers['x-api-token'] || req.query.token;
+  if (token !== QR_ACCESS_TOKEN) {
+    res.status(401).json({ error: 'Unauthorized. Provide x-api-token header.' });
     return false;
   }
   return true;
@@ -147,15 +180,6 @@ async function forwardToN8n(payload) {
 }
 
 function cleanStaleLocksOnly() {
-  // Only remove Chromium lock files — NEVER delete .wwebjs_auth (that logs WhatsApp out)
-  const tmpProfile = '/tmp/chromium-profile';
-  if (fs.existsSync(tmpProfile)) {
-    try {
-      fs.rmSync(tmpProfile, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
   cleanChromiumLocks();
 }
 
@@ -194,6 +218,200 @@ function cleanChromiumLocks() {
   walk(authDir);
 }
 
+function extensionForMime(mimetype) {
+  const mime = String(mimetype || '').split(';')[0].trim().toLowerCase();
+  const map = {
+    'audio/ogg': 'ogg',
+    'audio/opus': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/wav': 'wav',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'application/pdf': 'pdf',
+  };
+  return map[mime] || 'bin';
+}
+
+function normalizeMessageType(msg) {
+  const type = String(msg.type || 'chat').toLowerCase();
+  if (type === 'chat') return 'text';
+  if (type === 'ptt') return 'audio';
+  return type;
+}
+
+function placeholderForType(messageType) {
+  if (messageType === 'audio' || messageType === 'ptt') return '[voice note]';
+  if (messageType === 'image') return '[image]';
+  if (messageType === 'video') return '[video]';
+  if (messageType === 'document') return '[document]';
+  if (messageType === 'sticker') return '[sticker]';
+  return '[media]';
+}
+
+function classifySender(msg) {
+  if (!msg.fromMe) return 'customer';
+  const id = msg.id?._serialized || '';
+  if (id && bridgeSentIds.has(id)) return 'ai';
+  return 'counselor';
+}
+
+async function downloadAndStoreMedia(msg, phone) {
+  if (!msg.hasMedia) return null;
+
+  let media;
+  try {
+    media = await msg.downloadMedia();
+  } catch (error) {
+    console.warn(`Media download failed (${msg.id?._serialized}):`, error.message);
+    return null;
+  }
+
+  if (!media?.data) return null;
+
+  const buffer = Buffer.from(media.data, 'base64');
+  if (buffer.length > MEDIA_MAX_BYTES) {
+    console.warn(
+      `Media too large (${buffer.length} bytes) for ${msg.id?._serialized} — skipped save`
+    );
+    return {
+      mimetype: media.mimetype || '',
+      filename: '',
+      media_url: '',
+      size_bytes: buffer.length,
+      skipped: true,
+      reason: 'too_large',
+    };
+  }
+
+  const safePhone = normalizePhone(phone) || 'unknown';
+  const ext = extensionForMime(media.mimetype);
+  const filename = `${Date.now()}_${safePhone}_${String(msg.id?.id || 'msg').slice(-12)}.${ext}`;
+  const filePath = path.join(MEDIA_DIR, filename);
+  fs.writeFileSync(filePath, buffer);
+
+  const tokenQuery = QR_ACCESS_TOKEN
+    ? `?token=${encodeURIComponent(QR_ACCESS_TOKEN)}`
+    : '';
+
+  return {
+    mimetype: media.mimetype || '',
+    filename,
+    media_url: `${MEDIA_BASE_URL}/media/${filename}${tokenQuery}`,
+    size_bytes: buffer.length,
+    skipped: false,
+  };
+}
+
+function cleanupOldMedia() {
+  const maxAgeMs = MEDIA_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  try {
+    for (const name of fs.readdirSync(MEDIA_DIR)) {
+      const full = path.join(MEDIA_DIR, name);
+      try {
+        const stat = fs.statSync(full);
+        if (stat.isFile() && now - stat.mtimeMs > maxAgeMs) {
+          fs.unlinkSync(full);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function buildPayload(msg) {
+  const phone = await resolvePeerPhone(msg);
+  if (!phone) return null;
+  if (ALLOWLIST.length > 0 && !ALLOWLIST.includes(phone)) return null;
+
+  const messageType = normalizeMessageType(msg);
+  const hasMedia = Boolean(msg.hasMedia);
+  const bodyText = String(msg.body || '').trim();
+  const sender = classifySender(msg);
+  const direction = msg.fromMe ? 'outbound' : 'inbound';
+
+  let whatsappName = '';
+  try {
+    const contact = await msg.getContact();
+    whatsappName = contact.pushname || contact.name || '';
+  } catch {
+    whatsappName = msg._data?.notifyName || '';
+  }
+
+  let mediaInfo = null;
+  if (hasMedia) {
+    mediaInfo = await downloadAndStoreMedia(msg, phone);
+  }
+
+  const message =
+    bodyText ||
+    (hasMedia ? placeholderForType(messageType) : '');
+
+  if (!message && !hasMedia) return null;
+
+  return {
+    phone,
+    message,
+    timestamp: new Date((msg.timestamp || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+    direction,
+    whatsapp_name: whatsappName,
+    message_id: msg.id?._serialized || '',
+    message_type: messageType,
+    has_media: hasMedia,
+    mimetype: mediaInfo?.mimetype || '',
+    media_filename: mediaInfo?.filename || '',
+    media_url: mediaInfo?.media_url || '',
+    media_size_bytes: mediaInfo?.size_bytes || 0,
+    sender,
+    source: 'whatsapp',
+    from_me: Boolean(msg.fromMe),
+  };
+}
+
+async function handleMessageCreate(msg) {
+  try {
+    if (msg.from?.endsWith?.('@g.us') || msg.to?.endsWith?.('@g.us')) return;
+    if (msg.from === 'status@broadcast') return;
+
+    const messageId = msg.id?._serialized || '';
+    if (messageId) {
+      pruneMap(recentlyProcessed, 5 * 60 * 1000);
+      if (recentlyProcessed.has(messageId)) return;
+      recentlyProcessed.set(messageId, Date.now());
+    }
+
+    // Refresh AI classification window
+    pruneMap(bridgeSentIds, 10 * 60 * 1000);
+
+    const payload = await buildPayload(msg);
+    if (!payload) {
+      if (!msg.fromMe) {
+        console.warn(`Skipping message — could not resolve phone for ${msg.from}`);
+      }
+      return;
+    }
+
+    const preview =
+      payload.message_type === 'text'
+        ? payload.message.slice(0, 80)
+        : `${payload.message_type}${payload.media_url ? ' +media' : ''}`;
+    console.log(`[${payload.direction}/${payload.sender}] ${payload.phone}: ${preview}`);
+
+    await forwardToN8n(payload);
+    console.log(`Forwarded to n8n: ${payload.phone} (${payload.sender})`);
+  } catch (error) {
+    console.error('Failed to process message_create:', error.message);
+  }
+}
+
 const puppeteerArgs = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -209,7 +427,6 @@ const client = new Client({
   }),
   puppeteer: {
     headless: true,
-    userDataDir: '/tmp/chromium-profile',
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: puppeteerArgs,
   },
@@ -245,6 +462,7 @@ client.on('ready', () => {
   whatsappState = 'ready';
   isInitializing = false;
   console.log('WhatsApp client is ready.');
+  cleanupOldMedia();
 });
 
 client.on('authenticated', () => {
@@ -269,56 +487,11 @@ client.on('auth_failure', (msg) => {
   console.error('WhatsApp auth failed:', msg);
 });
 
-client.on('message', async (msg) => {
-  try {
-    if (msg.fromMe) return;
-    if (msg.from.endsWith('@g.us')) return;
-    if (!msg.body?.trim()) return;
-
-    const phone = await resolvePhone(msg);
-    if (!phone) {
-      console.warn(`Skipping message — could not resolve real phone for ${msg.from}`);
-      return;
-    }
-    if (ALLOWLIST.length > 0 && !ALLOWLIST.includes(phone)) return;
-
-    let whatsappName = '';
-    try {
-      const contact = await msg.getContact();
-      whatsappName = contact.pushname || contact.name || '';
-    } catch {
-      whatsappName = msg._data?.notifyName || '';
-    }
-
-    const payload = {
-      phone,
-      message: msg.body.trim(),
-      timestamp: new Date(msg.timestamp * 1000).toISOString(),
-      direction: 'inbound',
-      whatsapp_name: whatsappName,
-      message_id: msg.id._serialized,
-    };
-
-    console.log(`[${phone}] ${payload.message.slice(0, 80)}`);
-    await forwardToN8n(payload);
-    console.log(`Forwarded to n8n: ${phone}`);
-  } catch (error) {
-    console.error('Failed to process message:', error.message);
-  }
-});
+// Captures customer + AI (/send) + counselor phone messages
+client.on('message_create', handleMessageCreate);
 
 const app = express();
-app.use(express.json());
-
-function checkApiToken(req, res) {
-  if (!QR_ACCESS_TOKEN) return true;
-  const token = req.headers['x-api-token'] || req.query.token;
-  if (token !== QR_ACCESS_TOKEN) {
-    res.status(401).json({ error: 'Unauthorized. Provide x-api-token header.' });
-    return false;
-  }
-  return true;
-}
+app.use(express.json({ limit: '2mb' }));
 
 async function sendWhatsAppMessage(phone, message) {
   if (whatsappState !== 'ready' && whatsappState !== 'authenticated') {
@@ -329,8 +502,12 @@ async function sendWhatsAppMessage(phone, message) {
   if (!digits) throw new Error('Invalid phone number');
 
   const chatId = `${digits}@c.us`;
-  await client.sendMessage(chatId, message);
-  return digits;
+  const sent = await client.sendMessage(chatId, message);
+  const messageId = sent?.id?._serialized || '';
+  if (messageId) {
+    bridgeSentIds.set(messageId, Date.now());
+  }
+  return { phone: digits, message_id: messageId };
 }
 
 app.post('/send', async (req, res) => {
@@ -342,19 +519,37 @@ app.post('/send', async (req, res) => {
       return res.status(400).json({ error: 'phone and message are required' });
     }
 
-    const sentTo = await sendWhatsAppMessage(phone, String(message).trim());
-    console.log(`Sent WhatsApp message to ${sentTo}`);
-    res.json({ ok: true, phone: sentTo });
+    const result = await sendWhatsAppMessage(phone, String(message).trim());
+    console.log(`Sent WhatsApp message to ${result.phone}`);
+    res.json({ ok: true, phone: result.phone, message_id: result.message_id });
   } catch (error) {
     console.error('Send failed:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
+app.get('/media/:filename', (req, res) => {
+  if (!checkApiToken(req, res)) return;
+
+  const filename = path.basename(String(req.params.filename || ''));
+  if (!filename || filename.includes('..')) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+
+  const filePath = path.join(MEDIA_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  res.sendFile(filePath);
+});
+
 app.get('/health', (_req, res) => {
   res.json({
     ok: whatsappState === 'ready' || whatsappState === 'authenticated',
     whatsapp: whatsappState,
+    capture: 'message_create',
+    media_dir: MEDIA_DIR,
   });
 });
 
@@ -398,7 +593,10 @@ async function main() {
   app.listen(PORT, () => {
     console.log(`Health: http://0.0.0.0:${PORT}/health`);
     console.log(`QR page: http://0.0.0.0:${PORT}/qr`);
+    console.log(`Media: ${MEDIA_DIR} via ${MEDIA_BASE_URL}/media/...`);
   });
+
+  setInterval(cleanupOldMedia, 6 * 60 * 60 * 1000);
 
   await waitForN8n();
   await startWhatsAppClient();

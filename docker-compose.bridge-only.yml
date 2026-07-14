@@ -16,9 +16,14 @@ services:
       - QR_ACCESS_TOKEN=${QR_ACCESS_TOKEN:?Set QR_ACCESS_TOKEN in .env}
       - ALLOWLIST=${ALLOWLIST:-}
       - WEBHOOK_RETRIES=${WEBHOOK_RETRIES:-3}
+      - MEDIA_DIR=/app/media
+      - MEDIA_BASE_URL=${MEDIA_BASE_URL:-http://niostech-whatsapp:3001}
+      - MEDIA_MAX_MB=${MEDIA_MAX_MB:-15}
+      - MEDIA_TTL_DAYS=${MEDIA_TTL_DAYS:-14}
       - PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
     volumes:
       - whatsapp_auth:/app/.wwebjs_auth
+      - whatsapp_media:/app/media
     ports:
       - "3001:3001"
     shm_size: "512mb"
@@ -27,6 +32,7 @@ services:
 
 volumes:
   whatsapp_auth:
+  whatsapp_media:
 
 networks:
   n8n_default:
