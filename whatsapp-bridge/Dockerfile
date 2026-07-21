@@ -35,8 +35,6 @@ COPY docker-entrypoint.sh ./
 
 RUN mkdir -p .wwebjs_auth media assets && chown -R node:node /app && chmod +x docker-entrypoint.sh
 
-USER node
-
 EXPOSE 3001
 
 CMD ["./docker-entrypoint.sh"]

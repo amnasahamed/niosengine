@@ -933,6 +933,10 @@ app.get('/media/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
+app.get('/favicon.ico', (_req, res) => {
+  res.status(204).end();
+});
+
 app.get('/health', (_req, res) => {
   res.json({
     ok: whatsappState === 'ready' || whatsappState === 'authenticated',

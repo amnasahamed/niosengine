@@ -27,7 +27,7 @@ services:
     volumes:
       - whatsapp_auth:/app/.wwebjs_auth
       - whatsapp_media:/app/media
-      - ./whatsapp-bridge/assets:/app/assets
+      - whatsapp_assets:/app/assets
     ports:
       - "3001:3001"
     shm_size: "512mb"
@@ -37,6 +37,7 @@ services:
 volumes:
   whatsapp_auth:
   whatsapp_media:
+  whatsapp_assets:
 
 networks:
   n8n_default:
