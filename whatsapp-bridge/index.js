@@ -96,6 +96,10 @@ async function resolvePeerPhone(msg) {
       const phone = normalizePhone(contact.number);
       if (phone) return phone;
     }
+    if (contact.id?.user) {
+      const phone = normalizePhone(contact.id.user);
+      if (phone) return phone;
+    }
   } catch {
     // ignore
   }
@@ -108,7 +112,18 @@ async function resolvePeerPhone(msg) {
   try {
     const chat = await msg.getChat();
     if (chat?.isGroup) return '';
-    const digits = String(chat?.id?.user || chat?.name || '').replace(/\D/g, '');
+    const chatUser = chat?.id?.user || '';
+    if (String(chatUser).endsWith('@lid')) {
+      if (typeof client.getContactLidAndPhone === 'function') {
+        const results = await client.getContactLidAndPhone([`${chatUser}@lid`]);
+        const entry = results?.[0];
+        if (entry?.pn) {
+          const phone = normalizePhone(entry.pn);
+          if (phone) return phone;
+        }
+      }
+    }
+    const digits = String(chatUser || chat?.name || '').replace(/\D/g, '');
     if (digits.length >= 10 && digits.length <= 13) {
       const phone = normalizePhone(digits);
       if (phone) return phone;
@@ -623,7 +638,9 @@ async function handleMessageCreate(msg) {
     const payload = await buildPayload(msg);
     if (!payload) {
       if (!msg.fromMe) {
-        console.warn(`Skipping message — could not resolve phone for ${msg.from}`);
+        console.warn(
+          `Skipping inbound message — could not resolve phone for from=${msg.from} to=${msg.to} id=${msg.id?._serialized || ''}`
+        );
       }
       return;
     }
@@ -718,6 +735,12 @@ client.on('auth_failure', (msg) => {
 
 // Captures customer + AI (/send) + counselor phone messages
 client.on('message_create', handleMessageCreate);
+
+// Backup capture for inbound-only events (some WA Web builds are flaky on message_create)
+client.on('message', async (msg) => {
+  if (msg.fromMe) return;
+  await handleMessageCreate(msg);
+});
 
 const app = express();
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
