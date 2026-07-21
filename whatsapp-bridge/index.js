@@ -397,8 +397,8 @@ async function resolveOutboundMedia(body) {
   return null;
 }
 
-function buildSendOptions(mediaType, body) {
-  const caption = String(body.message || body.caption || '').trim();
+function buildSendOptions(mediaType, body, captionText) {
+  const caption = String(captionText ?? body.message ?? body.caption ?? '').trim();
   const options = {};
   if (caption) options.caption = caption;
 
@@ -747,7 +747,7 @@ async function sendWhatsAppMessage(phone, message) {
   };
 }
 
-async function sendWhatsAppMedia(phone, mediaPayload, body) {
+async function sendWhatsAppMedia(phone, mediaPayload, body, captionText = undefined) {
   await ensureWhatsAppReady();
 
   const digits = normalizePhone(phone);
@@ -761,7 +761,7 @@ async function sendWhatsAppMedia(phone, mediaPayload, body) {
     mediaPayload.buffer.toString('base64'),
     mediaPayload.filename
   );
-  const options = buildSendOptions(mediaType, body);
+  const options = buildSendOptions(mediaType, body, captionText);
   const chatId = `${digits}@c.us`;
   const sent = await client.sendMessage(chatId, media, options);
   const messageId = sent?.id?._serialized || '';
@@ -777,6 +777,30 @@ async function sendWhatsAppMedia(phone, mediaPayload, body) {
     filename: mediaPayload.filename,
     source: mediaPayload.source,
     send_options: options,
+  };
+}
+
+async function sendWhatsAppTextAndMediaSeparate(phone, message, mediaPayload, body) {
+  const gapMs = Number(body.message_gap_ms || 2000);
+  const parts = [];
+
+  if (message) {
+    parts.push(await sendWhatsAppMessage(phone, message));
+    if (gapMs > 0) await sleep(gapMs);
+  }
+
+  parts.push(await sendWhatsAppMedia(phone, mediaPayload, body, ''));
+
+  const last = parts[parts.length - 1];
+  return {
+    phone: last.phone,
+    message_id: last.message_id,
+    media_type: last.media_type,
+    mimetype: last.mimetype,
+    filename: last.filename,
+    source: last.source,
+    separate_messages: true,
+    parts_count: parts.length,
   };
 }
 
@@ -809,7 +833,9 @@ app.post('/send', async (req, res) => {
     }
 
     const result = hasMedia
-      ? await sendWhatsAppMedia(phone, mediaPayload, body)
+      ? body.separate_messages === true && message
+        ? await sendWhatsAppTextAndMediaSeparate(phone, message, mediaPayload, body)
+        : await sendWhatsAppMedia(phone, mediaPayload, body)
       : await sendWhatsAppMessage(phone, message);
 
     if (clientMsgId) {
@@ -946,6 +972,7 @@ app.get('/health', (_req, res) => {
     assets_dir: ASSETS_DIR,
     assets_ui_enabled: Boolean(ASSETS_UI_TOKEN),
     send_supports: ['text', 'image', 'audio', 'video', 'document'],
+    send_options: ['separate_messages', 'send_as_voice', 'send_as_document'],
     send_max_mb: Number(process.env.SEND_MAX_MB || 64),
     assets_count: listAssetFiles().length,
   });
