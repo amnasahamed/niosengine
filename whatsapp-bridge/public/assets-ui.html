@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Skillvard — Media Assets</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #ffffff;
+      --text: #1a2332;
+      --muted: #5c6b7a;
+      --border: #dde3ea;
+      --accent: #0d6e4f;
+      --accent-hover: #0a5a40;
+      --danger: #c0392b;
+      --danger-hover: #962d22;
+      --shadow: 0 8px 24px rgba(26, 35, 50, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    header {
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.75rem;
+      font-weight: 700;
+    }
+
+    .sub {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: #eef8f3;
+    }
+
+    .dropzone strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 1.05rem;
+    }
+
+    .dropzone span {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    input[type="file"] { display: none; }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 14px;
+    }
+
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      min-width: 200px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    label.field input {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.95rem;
+    }
+
+    button, .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-danger {
+      background: #fdecea;
+      color: var(--danger);
+    }
+
+    .btn-danger:hover { background: #f9d4d0; }
+
+    .btn-ghost {
+      background: #eef2f6;
+      color: var(--text);
+    }
+
+    .btn-ghost:hover { background: #e3e9ef; }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .status.show { display: block; }
+    .status.ok { background: #e8f6ef; color: #0d6e4f; }
+    .status.err { background: #fdecea; color: #962d22; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #eef2f6;
+      color: var(--muted);
+    }
+
+    .badge.image { background: #e8f2ff; color: #1a5fb4; }
+    .badge.audio { background: #f3e8ff; color: #7c3aed; }
+    .badge.video { background: #fff4e5; color: #b45309; }
+    .badge.document { background: #e8f6ef; color: #0d6e4f; }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 28px 12px;
+    }
+
+    .hint {
+      margin-top: 16px;
+      padding: 14px;
+      background: #f8fafc;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    code {
+      background: #eef2f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    @media (max-width: 640px) {
+      th:nth-child(3), td:nth-child(3) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Media Assets</h1>
+      <p class="sub">Upload brochures, images, audio, and video for WhatsApp sends via n8n.</p>
+    </header>
+
+    <section class="card">
+      <div id="dropzone" class="dropzone">
+        <strong>Drop files here or click to browse</strong>
+        <span>PDF, images, audio, video — max <span id="maxMb">64</span> MB each</span>
+      </div>
+      <input id="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.mp3,.ogg,.opus,.m4a,.aac,.wav,.mp4,.mov,.3gp,.webm" multiple />
+
+      <div class="row">
+        <label class="field">
+          Filename (optional rename)
+          <input id="filenameInput" type="text" placeholder="e.g. skillvard-brochure.pdf" />
+        </label>
+        <button id="uploadBtn" class="btn btn-primary" disabled>Upload</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;font-size:1.1rem;">Your files</h2>
+        <button id="refreshBtn" class="btn btn-ghost">Refresh</button>
+      </div>
+      <div id="fileList"></div>
+
+      <div class="hint">
+        In n8n <code>Send WhatsApp Reply</code>, use <code>asset</code> with the filename:
+        <code>{ "phone": "...", "asset": "skillvard-brochure.pdf", "message": "caption" }</code>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token') || sessionStorage.getItem('assets_token') || '';
+    if (token) sessionStorage.setItem('assets_token', token);
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const filenameInput = document.getElementById('filenameInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const statusEl = document.getElementById('status');
+    const fileListEl = document.getElementById('fileList');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const maxMbEl = document.getElementById('maxMb');
+
+    let pendingFile = null;
+
+    function headers() {
+      const h = { 'Content-Type': 'application/json' };
+      if (token) h['x-api-token'] = token;
+      return h;
+    }
+
+    function showStatus(message, ok) {
+      statusEl.textContent = message;
+      statusEl.className = 'status show ' + (ok ? 'ok' : 'err');
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function badgeClass(type) {
+      return 'badge ' + (type || 'document');
+    }
+
+    async function api(path, options = {}) {
+      const url = path + (token && !options.skipTokenQuery ? (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : '');
+      const res = await fetch(url, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ('Request failed (' + res.status + ')'));
+      return data;
+    }
+
+    function setPendingFile(file) {
+      pendingFile = file;
+      uploadBtn.disabled = !file;
+      if (file && !filenameInput.value) {
+        filenameInput.value = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      }
+    }
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result || '');
+          const base64 = result.includes(',') ? result.split(',')[1] : result;
+          resolve(base64);
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function loadFiles() {
+      try {
+        const data = await api('/assets');
+        if (data.send_max_mb) maxMbEl.textContent = data.send_max_mb;
+        renderFiles(data.files || []);
+      } catch (err) {
+        fileListEl.innerHTML = '<div class="empty">' + err.message + '</div>';
+      }
+    }
+
+    function renderFiles(files) {
+      if (!files.length) {
+        fileListEl.innerHTML = '<div class="empty">No files yet. Upload your brochure, images, or audio above.</div>';
+        return;
+      }
+
+      const rows = files.map((file) => {
+        const previewUrl = '/assets/' + encodeURIComponent(file.name) + (token ? '?token=' + encodeURIComponent(token) : '');
+        return `
+          <tr>
+            <td>
+              <strong>${escapeHtml(file.name)}</strong>
+            </td>
+            <td><span class="${badgeClass(file.media_type)}">${escapeHtml(file.media_type)}</span></td>
+            <td>${formatBytes(file.size_bytes)}</td>
+            <td>
+              <div class="actions">
+                <button class="btn btn-ghost" data-copy="${escapeAttr(file.name)}">Copy name</button>
+                <a class="btn btn-ghost" href="${previewUrl}" target="_blank" rel="noopener">Open</a>
+                <button class="btn btn-danger" data-delete="${escapeAttr(file.name)}">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      fileListEl.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Type</th>
+              <th>Size</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/'/g, '&#39;');
+    }
+
+    async function uploadFile() {
+      if (!pendingFile) return;
+      uploadBtn.disabled = true;
+      showStatus('Uploading ' + pendingFile.name + '...', true);
+
+      try {
+        const data = await readFileAsBase64(pendingFile);
+        await api('/assets/upload', {
+          method: 'POST',
+          body: JSON.stringify({
+            filename: filenameInput.value || pendingFile.name,
+            mimetype: pendingFile.type || undefined,
+            data,
+          }),
+        });
+        showStatus('Uploaded successfully.', true);
+        pendingFile = null;
+        fileInput.value = '';
+        filenameInput.value = '';
+        uploadBtn.disabled = true;
+        await loadFiles();
+      } catch (err) {
+        showStatus(err.message, false);
+        uploadBtn.disabled = false;
+      }
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      const file = e.dataTransfer.files?.[0];
+      if (file) setPendingFile(file);
+    });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (file) setPendingFile(file);
+    });
+
+    uploadBtn.addEventListener('click', uploadFile);
+    refreshBtn.addEventListener('click', loadFiles);
+
+    fileListEl.addEventListener('click', async (e) => {
+      const copyName = e.target.closest('[data-copy]')?.dataset.copy;
+      const deleteName = e.target.closest('[data-delete]')?.dataset.delete;
+
+      if (copyName) {
+        await navigator.clipboard.writeText(copyName);
+        showStatus('Copied "' + copyName + '" to clipboard.', true);
+        return;
+      }
+
+      if (deleteName) {
+        if (!confirm('Delete "' + deleteName + '"? This cannot be undone.')) return;
+        try {
+          await api('/assets/' + encodeURIComponent(deleteName), { method: 'DELETE' });
+          showStatus('Deleted ' + deleteName + '.', true);
+          await loadFiles();
+        } catch (err) {
+          showStatus(err.message, false);
+        }
+      }
+    });
+
+    if (!token) {
+      showStatus('Missing token. Open this page as /assets-ui?token=YOUR_QR_ACCESS_TOKEN', false);
+    } else {
+      loadFiles();
+    }
+  </script>
+</body>
+</html>
