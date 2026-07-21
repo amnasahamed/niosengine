@@ -42,6 +42,7 @@ services:
       - N8N_HEALTH_URL=${N8N_HEALTH_URL:-http://n8n:5678/healthz}
       - PORT=3001
       - QR_ACCESS_TOKEN=${QR_ACCESS_TOKEN:?Set QR_ACCESS_TOKEN in .env}
+      - ASSETS_UI_TOKEN=${ASSETS_UI_TOKEN:-}
       - ALLOWLIST=${ALLOWLIST:-}
       - WEBHOOK_RETRIES=${WEBHOOK_RETRIES:-3}
       - MEDIA_DIR=/app/media

@@ -10,7 +10,7 @@ if [[ ! -f .env ]]; then
   else
     cp .env.example .env
   fi
-  echo "Created .env — set QR_ACCESS_TOKEN then run again."
+  echo "Created .env — set QR_ACCESS_TOKEN and ASSETS_UI_TOKEN then run again."
   exit 1
 fi
 
@@ -19,6 +19,11 @@ source .env
 
 if [[ "${QR_ACCESS_TOKEN:-}" == "change-me-qr-token" || -z "${QR_ACCESS_TOKEN:-}" ]]; then
   echo "Error: Set QR_ACCESS_TOKEN in .env"
+  exit 1
+fi
+
+if [[ "${ASSETS_UI_TOKEN:-}" == "skillvard-assets-k9mP2xQ7" || -z "${ASSETS_UI_TOKEN:-}" ]]; then
+  echo "Error: Set ASSETS_UI_TOKEN in .env (use a unique URL-safe token)"
   exit 1
 fi
 
@@ -36,4 +41,5 @@ echo ""
 echo "Done. Next:"
 echo "  1. docker compose -f docker-compose.bridge-only.yml logs -f"
 echo "  2. Open http://YOUR_SERVER_IP:3001/qr?token=YOUR_QR_ACCESS_TOKEN"
-echo "  3. Import workflow in your EXISTING n8n UI and activate it"
+echo "  3. Media assets UI: http://YOUR_SERVER_IP:3001/assets-ui?token=YOUR_ASSETS_UI_TOKEN"
+echo "  4. Import workflow in your EXISTING n8n UI and activate it"

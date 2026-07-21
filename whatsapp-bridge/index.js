@@ -12,6 +12,7 @@ const N8N_HEALTH_URL =
   String(N8N_WEBHOOK_URL || '').replace(/\/webhook\/.*$/, '/healthz');
 const PORT = Number(process.env.PORT || 3001);
 const QR_ACCESS_TOKEN = process.env.QR_ACCESS_TOKEN || '';
+const ASSETS_UI_TOKEN = process.env.ASSETS_UI_TOKEN || '';
 const WEBHOOK_RETRIES = Number(process.env.WEBHOOK_RETRIES || 3);
 const MEDIA_DIR = path.resolve(process.env.MEDIA_DIR || './media');
 const ASSETS_DIR = path.resolve(process.env.ASSETS_DIR || './assets');
@@ -134,6 +135,30 @@ function checkApiToken(req, res) {
   const token = req.headers['x-api-token'] || req.query.token;
   if (token !== QR_ACCESS_TOKEN) {
     res.status(401).json({ error: 'Unauthorized. Provide x-api-token header.' });
+    return false;
+  }
+  return true;
+}
+
+function checkAssetsAccess(req, res, { html = false } = {}) {
+  if (!ASSETS_UI_TOKEN) {
+    const message = 'Assets UI is disabled. Set ASSETS_UI_TOKEN in .env';
+    if (html) {
+      res.status(503).send(`<h2>${message}</h2>`);
+    } else {
+      res.status(503).json({ error: message });
+    }
+    return false;
+  }
+
+  const token = req.headers['x-assets-token'] || req.query.token;
+  if (token !== ASSETS_UI_TOKEN) {
+    const message = 'Unauthorized. Provide ?token=YOUR_ASSETS_UI_TOKEN';
+    if (html) {
+      res.status(401).send(`<h2>${message}</h2>`);
+    } else {
+      res.status(401).json({ error: message });
+    }
     return false;
   }
   return true;
@@ -804,7 +829,7 @@ app.post('/send', async (req, res) => {
 });
 
 app.get('/assets', (req, res) => {
-  if (!checkApiToken(req, res)) return;
+  if (!checkAssetsAccess(req, res)) return;
   res.json({
     ok: true,
     assets_dir: ASSETS_DIR,
@@ -814,7 +839,7 @@ app.get('/assets', (req, res) => {
 });
 
 app.post('/assets/upload', async (req, res) => {
-  if (!checkApiToken(req, res)) return;
+  if (!checkAssetsAccess(req, res)) return;
 
   try {
     const filename = sanitizeAssetFilename(req.body?.filename);
@@ -854,7 +879,7 @@ app.post('/assets/upload', async (req, res) => {
 });
 
 app.delete('/assets/:filename', (req, res) => {
-  if (!checkApiToken(req, res)) return;
+  if (!checkAssetsAccess(req, res)) return;
 
   const filename = sanitizeAssetFilename(req.params.filename);
   if (!filename) {
@@ -872,12 +897,12 @@ app.delete('/assets/:filename', (req, res) => {
 });
 
 app.get('/assets-ui', (req, res) => {
-  if (!checkQrAccess(req, res)) return;
+  if (!checkAssetsAccess(req, res, { html: true })) return;
   res.sendFile(path.join(PUBLIC_DIR, 'assets-ui.html'));
 });
 
 app.get('/assets/:filename', (req, res) => {
-  if (!checkApiToken(req, res)) return;
+  if (!checkAssetsAccess(req, res)) return;
 
   const filename = sanitizeAssetFilename(req.params.filename);
   if (!filename) {
@@ -915,6 +940,7 @@ app.get('/health', (_req, res) => {
     capture: 'message_create',
     media_dir: MEDIA_DIR,
     assets_dir: ASSETS_DIR,
+    assets_ui_enabled: Boolean(ASSETS_UI_TOKEN),
     send_supports: ['text', 'image', 'audio', 'video', 'document'],
     send_max_mb: Number(process.env.SEND_MAX_MB || 64),
     assets_count: listAssetFiles().length,
@@ -925,10 +951,10 @@ app.get('/qr', async (req, res) => {
   if (!checkQrAccess(req, res)) return;
 
   if (whatsappState === 'ready' || whatsappState === 'authenticated') {
-    const tokenHint = QR_ACCESS_TOKEN ? '?token=YOUR_QR_ACCESS_TOKEN' : '';
+    const assetsHint = ASSETS_UI_TOKEN ? '?token=YOUR_ASSETS_UI_TOKEN' : '';
     return res.send(
       `<h2>WhatsApp is already connected.</h2>
-       <p><a href="/health">Health</a> · <a href="/assets-ui${tokenHint}">Media assets</a></p>`
+       <p><a href="/health">Health</a>${ASSETS_UI_TOKEN ? ` · <a href="/assets-ui${assetsHint}">Media assets</a>` : ''}</p>`
     );
   }
 
@@ -963,10 +989,14 @@ app.get('/qr', async (req, res) => {
 
 async function main() {
   app.listen(PORT, () => {
-    const tokenHint = QR_ACCESS_TOKEN ? '?token=YOUR_QR_ACCESS_TOKEN' : '';
+    const assetsHint = ASSETS_UI_TOKEN ? '?token=YOUR_ASSETS_UI_TOKEN' : '';
     console.log(`Health: http://0.0.0.0:${PORT}/health`);
     console.log(`QR page: http://0.0.0.0:${PORT}/qr`);
-    console.log(`Assets UI: http://0.0.0.0:${PORT}/assets-ui${tokenHint}`);
+    if (ASSETS_UI_TOKEN) {
+      console.log(`Assets UI: http://0.0.0.0:${PORT}/assets-ui${assetsHint}`);
+    } else {
+      console.log('Assets UI: disabled (set ASSETS_UI_TOKEN in .env)');
+    }
     console.log(`Media: ${MEDIA_DIR} via ${MEDIA_BASE_URL}/media/...`);
     console.log(`Assets: ${ASSETS_DIR} (${listAssetFiles().length} file(s))`);
   });

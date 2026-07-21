@@ -266,8 +266,8 @@
 
   <script>
     const params = new URLSearchParams(location.search);
-    const token = params.get('token') || sessionStorage.getItem('assets_token') || '';
-    if (token) sessionStorage.setItem('assets_token', token);
+    const token = params.get('token') || sessionStorage.getItem('assets_ui_token') || '';
+    if (token) sessionStorage.setItem('assets_ui_token', token);
 
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
@@ -282,7 +282,7 @@
 
     function headers() {
       const h = { 'Content-Type': 'application/json' };
-      if (token) h['x-api-token'] = token;
+      if (token) h['x-assets-token'] = token;
       return h;
     }
 
@@ -467,7 +467,7 @@
     });
 
     if (!token) {
-      showStatus('Missing token. Open this page as /assets-ui?token=YOUR_QR_ACCESS_TOKEN', false);
+      showStatus('Missing token. Open /assets-ui?token=YOUR_ASSETS_UI_TOKEN', false);
     } else {
       loadFiles();
     }
